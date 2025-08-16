@@ -1,1 +1,7 @@
 streamlit
+pandas
+altair
+folium
+streamlit-folium
+plotly
+pyshp
