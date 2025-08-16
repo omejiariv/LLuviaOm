@@ -9,22 +9,28 @@ import shapefile
 import io
 
 # Título de la aplicación
+st.set_page_config(layout="wide")
 st.title('☔ Visor de Información Geoespacial de Precipitación 🌧️')
+st.markdown("---")
 
 # --- Sección para la carga de datos ---
-## Carga de Datos
 with st.expander("📂 Cargar Datos"):
     st.write("Carga tu archivo `mapasCV.csv` y los archivos del shapefile (`.shp`, `.shx`, `.dbf`).")
     
     # Carga de archivos CSV
     uploaded_file_csv = st.file_uploader("Cargar archivo .csv (mapasCV.csv)", type="csv")
+    df = None
     if uploaded_file_csv:
-        df = pd.read_csv(uploaded_file_csv)
+        try:
+            df = pd.read_csv(uploaded_file_csv)
+            st.success("Archivo CSV cargado exitosamente.")
+        except Exception as e:
+            st.error(f"Error al leer el archivo CSV: {e}")
     else:
         try:
             df = pd.read_csv('mapasCV.csv')
         except FileNotFoundError:
-            st.warning("No se encontró el archivo 'mapasCV.csv'. Por favor, cárgalo manualmente.")
+            st.warning("No se encontró el archivo 'mapasCV.csv' en el directorio. Por favor, cárgalo manualmente.")
             df = None
 
     # Carga de archivos Shapefile
@@ -34,66 +40,66 @@ with st.expander("📂 Cargar Datos"):
 
     sf = None
     if uploaded_shp and uploaded_shx and uploaded_dbf:
-        shp_data = uploaded_shp.getvalue()
-        shx_data = uploaded_shx.getvalue()
-        dbf_data = uploaded_dbf.getvalue()
         try:
+            shp_data = uploaded_shp.getvalue()
+            shx_data = uploaded_shx.getvalue()
+            dbf_data = uploaded_dbf.getvalue()
             sf = shapefile.Reader(shp=io.BytesIO(shp_data), shx=io.BytesIO(shx_data), dbf=io.BytesIO(dbf_data))
+            st.success("Archivos Shapefile cargados exitosamente.")
         except Exception as e:
             st.error(f"Error al leer los archivos shapefile: {e}")
     else:
         try:
             sf = shapefile.Reader('mapasCV.shp')
         except FileNotFoundError:
-            st.warning("No se encontraron los archivos shapefile. Por favor, cárgalos manualmente.")
+            st.warning("No se encontraron los archivos shapefile en el directorio. Por favor, cárgalos manualmente.")
             sf = None
 
 if df is not None:
     # --- Configuración de pestañas ---
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4 = st.tabs([
         "📊 Datos Tabulados", 
         "📈 Gráficos de Precipitación", 
         "🌎 Mapa de Estaciones", 
-        "🎬 Animación de Lluvia", 
-        "⚙️ Opciones de Filtrado"
+        "🎬 Animación de Lluvia"
     ])
 
-    # --- Pestaña para opciones de filtrado (al inicio para mejor UX) ---
-    with tab5:
-        st.header("⚙️ Opciones de Filtrado y Selección")
-        st.markdown("---")
-        
-        # Selección de estaciones
-        all_stations = df['Nom_Est'].unique()
-        
-        # Opción para seleccionar todas las estaciones o ninguna
-        select_all = st.checkbox("Seleccionar todas las estaciones", value=False)
+    # --- Pestaña para opciones de filtrado ---
+    st.sidebar.header("⚙️ Opciones de Filtrado")
+    
+    # Selección de estaciones
+    all_stations = df['Nom_Est'].unique()
+    
+    # Opciones para seleccionar todas o ninguna
+    col1, col2 = st.sidebar.columns(2)
+    with col1:
+        select_all = st.checkbox("Seleccionar todas", value=False)
+    with col2:
         clear_all = st.checkbox("Eliminar selección", value=False)
-        
+    
+    selected_stations_list = []
+    if select_all:
+        selected_stations_list = all_stations
+    elif clear_all:
         selected_stations_list = []
-        if select_all:
-            selected_stations_list = all_stations
-        elif clear_all:
-            selected_stations_list = []
-        else:
-            selected_stations_list = st.multiselect(
-                "Elige las estaciones para el análisis:",
-                options=all_stations,
-                default=[]
-            )
-
-        selected_stations_df = df[df['Nom_Est'].isin(selected_stations_list)]
-
-        # Deslizadores para años
-        all_years = [str(year) for year in range(1970, 2022)]
-        start_year, end_year = st.slider(
-            "Elige el rango de años para el análisis:",
-            min_value=1970,
-            max_value=2021,
-            value=(1970, 2021)
+    else:
+        selected_stations_list = st.sidebar.multiselect(
+            "Elige las estaciones:",
+            options=all_stations,
+            default=[]
         )
-        
-        years_to_analyze = [str(year) for year in range(start_year, end_year + 1)]
+
+    selected_stations_df = df[df['Nom_Est'].isin(selected_stations_list)]
+
+    # Deslizadores para años
+    start_year, end_year = st.sidebar.slider(
+        "Elige el rango de años:",
+        min_value=1970,
+        max_value=2021,
+        value=(1970, 2021)
+    )
+    
+    years_to_analyze = [str(year) for year in range(start_year, end_year + 1)]
 
     # --- Pestaña para datos tabulados ---
     with tab1:
@@ -101,7 +107,7 @@ if df is not None:
         st.markdown("---")
         
         if selected_stations_df.empty:
-            st.info("Por favor, selecciona al menos una estación en la pestaña 'Opciones de Filtrado'.")
+            st.info("Por favor, selecciona al menos una estación en la barra lateral.")
         else:
             st.subheader("Información Adicional de las Estaciones Seleccionadas")
             
@@ -114,7 +120,7 @@ if df is not None:
             # Asegura que las columnas existan antes de seleccionarlas
             cols_to_display = [col for col in info_cols + year_cols_filtered if col in df.columns]
 
-            st.dataframe(selected_stations_df[cols_to_display])
+            st.dataframe(selected_stations_df[cols_to_display].set_index('Nom_Est'))
 
     # --- Pestaña para gráficos ---
     with tab2:
@@ -122,7 +128,7 @@ if df is not None:
         st.markdown("---")
         
         if selected_stations_df.empty:
-            st.info("Por favor, selecciona al menos una estación en la pestaña 'Opciones de Filtrado'.")
+            st.info("Por favor, selecciona al menos una estación en la barra lateral.")
         else:
             # Gráfico de línea/barra
             st.subheader("Precipitación Anual por Estación")
@@ -190,7 +196,7 @@ if df is not None:
         if sf is None:
             st.info("Por favor, carga los archivos del shapefile en la sección 'Cargar Datos'.")
         elif selected_stations_df.empty:
-            st.info("Por favor, selecciona al menos una estación en la pestaña 'Opciones de Filtrado'.")
+            st.info("Por favor, selecciona al menos una estación en la barra lateral.")
         else:
             # Crear un mapa base con Folium
             map_center = [selected_stations_df['Latitud'].mean(), selected_stations_df['Longitud'].mean()]
@@ -198,6 +204,11 @@ if df is not None:
             
             # Cargar y añadir las estaciones del shapefile
             for shape in sf.shapes():
+                # Obtenemos el nombre de la estación a partir de los registros del shapefile.
+                record_index = sf.shapes().index(shape)
+                record = sf.records()[record_index]
+                estacion_nombre = record['Nom_Est']
+                
                 for point in shape.points:
                     lon, lat = point[0], point[1]
                     folium.CircleMarker(
@@ -206,7 +217,7 @@ if df is not None:
                         color='blue',
                         fill=True,
                         fill_color='blue',
-                        tooltip=f"Estación: {df[df['Longitud'] == lon]['Nom_Est'].iloc[0]}"
+                        tooltip=f"Estación: {estacion_nombre}"
                     ).add_to(m)
 
             folium_static(m)
@@ -217,7 +228,7 @@ if df is not None:
         st.markdown("---")
         
         if selected_stations_df.empty:
-            st.info("Por favor, selecciona al menos una estación en la pestaña 'Opciones de Filtrado'.")
+            st.info("Por favor, selecciona al menos una estación en la barra lateral.")
         else:
             animation_type = st.radio("Selecciona el tipo de animación:", ('Barras Animadas', 'Mapa Animado'))
 
