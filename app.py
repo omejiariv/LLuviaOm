@@ -15,10 +15,10 @@ st.markdown("---")
 
 # --- Sección para la carga de datos ---
 with st.expander("📂 Cargar Datos"):
-    st.write("Carga tu archivo `mapasCV.csv` y los archivos del shapefile (`.shp`, `.shx`, `.dbf`).")
+    st.write("Carga tu archivo `mapaCV.csv` y los archivos del shapefile (`.shp`, `.shx`, `.dbf`).")
     
     # Carga de archivos CSV
-    uploaded_file_csv = st.file_uploader("Cargar archivo .csv (mapasCV.csv)", type="csv")
+    uploaded_file_csv = st.file_uploader("Cargar archivo .csv (mapaCV.csv)", type="csv")
     df = None
     if uploaded_file_csv:
         try:
@@ -28,9 +28,9 @@ with st.expander("📂 Cargar Datos"):
             st.error(f"Error al leer el archivo CSV: {e}")
     else:
         try:
-            df = pd.read_csv('mapasCV.csv')
+            df = pd.read_csv('mapaCV.csv')
         except FileNotFoundError:
-            st.warning("No se encontró el archivo 'mapasCV.csv' en el directorio. Por favor, cárgalo manualmente.")
+            st.warning("No se encontró el archivo 'mapaCV.csv' en el directorio. Por favor, cárgalo manualmente.")
             df = None
 
     # Carga de archivos Shapefile
@@ -50,7 +50,7 @@ with st.expander("📂 Cargar Datos"):
             st.error(f"Error al leer los archivos shapefile: {e}")
     else:
         try:
-            sf = shapefile.Reader('mapasCV.shp')
+            sf = shapefile.Reader('mapaCV.shp')
         except FileNotFoundError:
             st.warning("No se encontraron los archivos shapefile en el directorio. Por favor, cárgalos manualmente.")
             sf = None
@@ -280,3 +280,4 @@ if df is not None:
                 )
                 fig.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
                 st.plotly_chart(fig, use_container_width=True)
+
