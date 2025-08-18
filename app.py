@@ -224,23 +224,18 @@ if df is not None:
                     map_center = [selected_stations_df['Latitud'].mean(), selected_stations_df['Longitud'].mean()]
                     m = folium.Map(location=map_center, zoom_start=8, tiles="CartoDB positron")
                     
-                    # Cargar y añadir las estaciones del shapefile
-                    for shape in sf.shapes():
-                        # Obtenemos el nombre de la estación a partir de los registros del shapefile.
-                        record_index = sf.shapes().index(shape)
-                        record = sf.records()[record_index]
+                    # Cargar y añadir las estaciones del shapefile de forma segura
+                    for shape, record in sf.iterShapeRecords():
                         estacion_nombre = record['Nom_Est']
-                        
-                        for point in shape.points:
-                            lon, lat = point[0], point[1]
-                            folium.CircleMarker(
-                                location=[lat, lon],
-                                radius=5,
-                                color='blue',
-                                fill=True,
-                                fill_color='blue',
-                                tooltip=f"Estación: {estacion_nombre}"
-                            ).add_to(m)
+                        lon, lat = shape.points[0][0], shape.points[0][1]
+                        folium.CircleMarker(
+                            location=[lat, lon],
+                            radius=5,
+                            color='blue',
+                            fill=True,
+                            fill_color='blue',
+                            tooltip=f"Estación: {estacion_nombre}"
+                        ).add_to(m)
 
                     folium_static(m)
 
