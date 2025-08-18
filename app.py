@@ -28,10 +28,16 @@ with st.expander("📂 Cargar Datos"):
             st.error(f"Error al leer el archivo CSV: {e}")
     else:
         try:
+            # Intentar leer con el delimitador predeterminado (coma)
             df = pd.read_csv('mapaCV.csv')
-        except FileNotFoundError:
-            st.warning("No se encontró el archivo 'mapaCV.csv' en el directorio. Por favor, cárgalo manualmente.")
-            df = None
+        except (FileNotFoundError, pd.errors.ParserError):
+            try:
+                # Si falla, intentar con punto y coma
+                df = pd.read_csv('mapaCV.csv', sep=';')
+                st.warning("Se ha cargado el archivo CSV usando ';' como separador.")
+            except (FileNotFoundError, pd.errors.ParserError):
+                st.warning("No se pudo leer 'mapaCV.csv'. Por favor, cárgalo manualmente o revisa su formato.")
+                df = None
 
     # Carga de archivos Shapefile
     uploaded_shp = st.file_uploader("Cargar archivo .shp", type="shp")
@@ -280,4 +286,3 @@ if df is not None:
                 )
                 fig.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
                 st.plotly_chart(fig, use_container_width=True)
-
