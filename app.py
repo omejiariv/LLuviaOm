@@ -38,7 +38,7 @@ with st.expander("📂 Cargar Datos"):
             # Renombrar columnas con los nombres correctos del usuario
             df = df.rename(columns={'Mpio': 'municipio', 'NOMBRE_VER': 'vereda'})
             st.warning("Se ha cargado el archivo CSV usando ';' como separador.")
-        except (FileNotFoundError, pd.errors.ParserError):
+        except (FileNotFound, pd.errors.ParserError):
             st.warning("No se pudo leer 'mapaCV.csv'. Por favor, cárgalo manualmente o revisa su formato.")
             df = None
 
@@ -164,8 +164,12 @@ if df is not None:
                     cols_to_display = [col for col in info_cols + years_to_analyze_present if col in df.columns]
 
                     # Aplicar escala de colores a los datos de precipitación
-                    styled_df = selected_stations_df[cols_to_display].set_index('Nom_Est').style.background_gradient(cmap='RdYlBu_r', subset=years_to_analyze_present)
-                    st.dataframe(styled_df)
+                    df_to_display = selected_stations_df[cols_to_display].set_index('Nom_Est')
+                    if years_to_analyze_present:
+                        styled_df = df_to_display.style.background_gradient(cmap='RdYlBu_r', subset=years_to_analyze_present)
+                        st.dataframe(styled_df)
+                    else:
+                        st.dataframe(df_to_display)
 
                     # Nueva tabla con estadísticas
                     st.subheader("Estadísticas de Precipitación")
