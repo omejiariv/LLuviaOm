@@ -166,8 +166,12 @@ if df is not None:
 
                     # Aplicar escala de colores a los datos de precipitación
                     if not df_to_display.empty and years_to_analyze_present:
-                        styled_df = df_to_display.style.background_gradient(cmap='RdYlBu_r', subset=years_to_analyze_present)
-                        st.dataframe(styled_df)
+                        try:
+                            styled_df = df_to_display.style.background_gradient(cmap='RdYlBu_r', subset=years_to_analyze_present)
+                            st.dataframe(styled_df)
+                        except Exception as e:
+                            st.error(f"Error al aplicar estilo de tabla: {e}. Mostrando tabla sin estilo.")
+                            st.dataframe(df_to_display)
                     else:
                         st.dataframe(df_to_display)
 
@@ -177,7 +181,7 @@ if df is not None:
                     # Prepara el DataFrame para estadísticas
                     stats_df = selected_stations_df[['Nom_Est', 'estacion', 'municipio', 'vereda']].copy()
                     
-                    if years_to_analyze_present:
+                    if years_to_analyze_present and not selected_stations_df.empty:
                         # Calcular max, min, mean, std
                         stats_df['Precipitación Máxima (mm)'] = selected_stations_df[years_to_analyze_present].max(axis=1).round(2)
                         stats_df['Año Máximo'] = selected_stations_df[years_to_analyze_present].idxmax(axis=1)
@@ -194,25 +198,33 @@ if df is not None:
                             value_name='Precipitación'
                         )
                         
-                        max_precip = df_melted_stats['Precipitación'].max()
-                        min_precip = df_melted_stats['Precipitación'].min()
-                        
-                        max_year = df_melted_stats[df_melted_stats['Precipitación'] == max_precip]['Año'].iloc[0]
-                        min_year = df_melted_stats[df_melted_stats['Precipitación'] == min_precip]['Año'].iloc[0]
-
-                        summary_row = pd.DataFrame([{
-                            'Nom_Est': 'Todas las estaciones',
-                            'estacion': '',
-                            'municipio': '',
-                            'vereda': '',
-                            'Precipitación Máxima (mm)': max_precip,
-                            'Año Máximo': max_year,
-                            'Precipitación Mínima (mm)': min_precip,
-                            'Año Mínimo': min_year,
-                            'Precipitación Media (mm)': df_melted_stats['Precipitación'].mean().round(2),
-                            'Desviación Estándar': df_melted_stats['Precipitación'].std().round(2)
-                        }])
-                        stats_df = pd.concat([stats_df, summary_row], ignore_index=True)
+                        if not df_melted_stats.empty:
+                            max_precip = df_melted_stats['Precipitación'].max()
+                            min_precip = df_melted_stats['Precipitación'].min()
+                            
+                            try:
+                                max_year = df_melted_stats[df_melted_stats['Precipitación'] == max_precip]['Año'].iloc[0]
+                            except IndexError:
+                                max_year = 'N/A'
+                            
+                            try:
+                                min_year = df_melted_stats[df_melted_stats['Precipitación'] == min_precip]['Año'].iloc[0]
+                            except IndexError:
+                                min_year = 'N/A'
+                            
+                            summary_row = pd.DataFrame([{
+                                'Nom_Est': 'Todas las estaciones',
+                                'estacion': '',
+                                'municipio': '',
+                                'vereda': '',
+                                'Precipitación Máxima (mm)': max_precip,
+                                'Año Máximo': max_year,
+                                'Precipitación Mínima (mm)': min_precip,
+                                'Año Mínimo': min_year,
+                                'Precipitación Media (mm)': df_melted_stats['Precipitación'].mean().round(2),
+                                'Desviación Estándar': df_melted_stats['Precipitación'].std().round(2)
+                            }])
+                            stats_df = pd.concat([stats_df, summary_row], ignore_index=True)
 
                     st.dataframe(stats_df.set_index('Nom_Est'))
 
