@@ -220,24 +220,27 @@ if df is not None:
                 elif selected_stations_df.empty:
                     st.info("Por favor, selecciona al menos una estación en la barra lateral.")
                 else:
-                    # Se ha movido el cálculo del centro del mapa para evitar errores en caso de no haber estaciones seleccionadas
-                    map_center = [selected_stations_df['Latitud'].mean(), selected_stations_df['Longitud'].mean()]
-                    m = folium.Map(location=map_center, zoom_start=8, tiles="CartoDB positron")
-                    
-                    # Cargar y añadir las estaciones del shapefile de forma segura
-                    for shape, record in sf.iterShapeRecords():
-                        estacion_nombre = record['Nom_Est']
-                        lon, lat = shape.points[0][0], shape.points[0][1]
-                        folium.CircleMarker(
-                            location=[lat, lon],
-                            radius=5,
-                            color='blue',
-                            fill=True,
-                            fill_color='blue',
-                            tooltip=f"Estación: {estacion_nombre}"
-                        ).add_to(m)
+                    try:
+                        # Se ha movido el cálculo del centro del mapa para evitar errores en caso de no haber estaciones seleccionadas
+                        map_center = [selected_stations_df['Latitud'].mean(), selected_stations_df['Longitud'].mean()]
+                        m = folium.Map(location=map_center, zoom_start=8, tiles="CartoDB positron")
+                        
+                        # Cargar y añadir las estaciones del shapefile de forma segura
+                        for shape, record in sf.iterShapeRecords():
+                            estacion_nombre = record['Nom_Est']
+                            lon, lat = shape.points[0][0], shape.points[0][1]
+                            folium.CircleMarker(
+                                location=[lat, lon],
+                                radius=5,
+                                color='blue',
+                                fill=True,
+                                fill_color='blue',
+                                tooltip=f"Estación: {estacion_nombre}"
+                            ).add_to(m)
 
-                    folium_static(m)
+                        folium_static(m)
+                    except Exception as e:
+                        st.error(f"Error al procesar el shapefile: {e}. Por favor, asegúrate de que los archivos cargados sean válidos y no estén dañados.")
 
             # --- Pestaña para animaciones ---
             with tab4:
