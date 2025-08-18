@@ -5,3 +5,9 @@ folium
 streamlit-folium
 plotly
 pyshp
+geopandas
+fiona
+pyproj
+Shapely
+rtree
+matplotlib
