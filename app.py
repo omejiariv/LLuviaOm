@@ -26,6 +26,8 @@ with st.expander("📂 Cargar Datos"):
     if uploaded_file_csv:
         try:
             df = pd.read_csv(uploaded_file_csv, sep=';')
+            # Renombrar columnas con los nombres correctos del usuario
+            df = df.rename(columns={'Mpio': 'municipio', 'NOMBRE_VER': 'vereda'})
             st.success("Archivo CSV cargado exitosamente.")
         except Exception as e:
             st.error(f"Error al leer el archivo CSV: {e}")
@@ -33,8 +35,10 @@ with st.expander("📂 Cargar Datos"):
     else:
         try:
             df = pd.read_csv('mapaCV.csv', sep=';')
+            # Renombrar columnas con los nombres correctos del usuario
+            df = df.rename(columns={'Mpio': 'municipio', 'NOMBRE_VER': 'vereda'})
             st.warning("Se ha cargado el archivo CSV usando ';' como separador.")
-        except (FileNotFoundError, pd.errors.ParserError):
+        except (FileNotFound-Error, pd.errors.ParserError):
             st.warning("No se pudo leer 'mapaCV.csv'. Por favor, cárgalo manualmente o revisa su formato.")
             df = None
 
@@ -251,7 +255,6 @@ if df is not None:
                 else:
                     gdf_selected = gdf[gdf['Nom_Est'].isin(selected_stations_list)]
                     
-                    # Fusiona el GeoDataFrame con el DataFrame de estadísticas para tener los datos de precipitación
                     gdf_selected = gdf_selected.merge(stats_df, on='Nom_Est', how='left')
 
                     if gdf_selected.empty:
@@ -260,11 +263,8 @@ if df is not None:
                         map_center = [gdf_selected.geometry.centroid.y.mean(), gdf_selected.geometry.centroid.x.mean()]
                         m = folium.Map(location=map_center, zoom_start=8, tiles="CartoDB positron")
                         
-                        # Añade los marcadores con pop-up y tooltip
                         for idx, row in gdf_selected.iterrows():
-                            # Asegúrate de que las coordenadas sean válidas
                             if pd.notna(row['Latitud']) and pd.notna(row['Longitud']):
-                                # Crea el texto para el pop-up y el tooltip
                                 pop_up_text = (
                                     f"<b>Estación:</b> {row['Nom_Est']}<br>"
                                     f"<b>Municipio:</b> {row['municipio']}<br>"
@@ -273,12 +273,11 @@ if df is not None:
                                 )
                                 tooltip_text = f"Estación: {row['Nom_Est']}"
 
-                                # Define el tamaño del icono basado en un valor fijo para mantener la consistencia
                                 icon_size = 12
 
                                 folium.CircleMarker(
                                     location=[row['Latitud'], row['Longitud']],
-                                    radius=icon_size / 2, # El radio es la mitad del tamaño del icono
+                                    radius=icon_size / 2,
                                     popup=pop_up_text,
                                     tooltip=tooltip_text,
                                     color='blue',
