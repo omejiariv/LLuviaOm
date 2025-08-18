@@ -5,7 +5,6 @@ import folium
 from streamlit_folium import folium_static
 import plotly.express as px
 import plotly.graph_objects as go
-# Import geopandas, zipfile, tempfile y os para el nuevo enfoque
 import geopandas as gpd
 import zipfile
 import tempfile
@@ -26,7 +25,6 @@ with st.expander("📂 Cargar Datos"):
     df = None
     if uploaded_file_csv:
         try:
-            # Leer el archivo subido usando punto y coma como delimitador
             df = pd.read_csv(uploaded_file_csv, sep=';')
             st.success("Archivo CSV cargado exitosamente.")
         except Exception as e:
@@ -34,7 +32,6 @@ with st.expander("📂 Cargar Datos"):
             df = None
     else:
         try:
-            # Intentar leer el archivo local con el delimitador ';'
             df = pd.read_csv('mapaCV.csv', sep=';')
             st.warning("Se ha cargado el archivo CSV usando ';' como separador.")
         except (FileNotFoundError, pd.errors.ParserError):
@@ -46,26 +43,18 @@ with st.expander("📂 Cargar Datos"):
     gdf = None
     if uploaded_zip:
         try:
-            # Crea un directorio temporal para extraer los archivos
             with tempfile.TemporaryDirectory() as temp_dir:
-                # Extrae el contenido del archivo zip
                 with zipfile.ZipFile(uploaded_zip, 'r') as zip_ref:
                     zip_ref.extractall(temp_dir)
                 
-                # Encuentra el archivo .shp en el directorio extraído
                 shp_files = [f for f in os.listdir(temp_dir) if f.endswith('.shp')]
                 if shp_files:
                     shp_path = os.path.join(temp_dir, shp_files[0])
-                    # Usa geopandas para leer el shapefile, que es más robusto
                     gdf = gpd.read_file(shp_path)
                     
-                    # --- NUEVA Y DEFINITIVA CORRECCIÓN CLAVE ---
-                    # El shapefile tiene un CRS conocido pero no asignado.
-                    # Asignamos el CRS correcto (MAGNA-SIRGAS_CMT12) y luego lo convertimos a WGS84.
-                    # El CRS MAGNA-SIRGAS_CMT12 corresponde a EPSG:9377.
+                    # Asignar el CRS correcto y convertir a WGS84
+                    # MAGNA-SIRGAS_CMT12 corresponde a EPSG:9377
                     gdf.set_crs("EPSG:9377", inplace=True)
-                    
-                    # Ahora, convierte el GeoDataFrame a EPSG:4326 para que Folium lo pueda usar
                     gdf = gdf.to_crs("EPSG:4326")
                     
                     st.success("Archivos Shapefile cargados exitosamente y sistema de coordenadas configurado y convertido a WGS84.")
@@ -77,7 +66,7 @@ with st.expander("📂 Cargar Datos"):
 
 if df is not None:
     # Validar que las columnas necesarias existan
-    required_cols = ['Nom_Est', 'Latitud', 'Longitud']
+    required_cols = ['Nom_Est', 'Latitud', 'Longitud', 'municipio', 'Celda_XY', 'vereda']
     missing_cols = [col for col in required_cols if col not in df.columns]
     
     if missing_cols:
@@ -105,10 +94,23 @@ if df is not None:
             # --- Pestaña para opciones de filtrado ---
             st.sidebar.header("⚙️ Opciones de Filtrado")
             
-            # Selección de estaciones
-            all_stations = df['Nom_Est'].unique()
+            # Selectores por municipio y celda
+            municipios = sorted(df['municipio'].unique())
+            selected_municipio = st.sidebar.selectbox("Elige un municipio:", ['Todos'] + municipios)
             
-            # Opciones para seleccionar todas o ninguna
+            celdas = sorted(df['Celda_XY'].unique())
+            selected_celda = st.sidebar.selectbox("Elige una celda:", ['Todas'] + celdas)
+
+            # Filtrar el DataFrame según la selección de municipio y celda
+            filtered_df_by_loc = df.copy()
+            if selected_municipio != 'Todos':
+                filtered_df_by_loc = filtered_df_by_loc[filtered_df_by_loc['municipio'] == selected_municipio]
+            if selected_celda != 'Todas':
+                filtered_df_by_loc = filtered_df_by_loc[filtered_df_by_loc['Celda_XY'] == selected_celda]
+            
+            # Selección de estaciones, ordenadas alfabéticamente
+            all_stations = sorted(filtered_df_by_loc['Nom_Est'].unique())
+            
             col1, col2 = st.sidebar.columns(2)
             with col1:
                 select_all = st.checkbox("Seleccionar todas", value=False)
@@ -138,7 +140,10 @@ if df is not None:
             )
             
             years_to_analyze = [str(year) for year in range(start_year, end_year + 1)]
-
+            
+            # Asegura que las columnas de años existan en el DataFrame antes de usarlas
+            years_to_analyze_present = [year for year in years_to_analyze if year in selected_stations_df.columns]
+            
             # --- Pestaña para datos tabulados ---
             with tab1:
                 st.header("📊 Datos Tabulados de las Estaciones")
@@ -152,13 +157,26 @@ if df is not None:
                     # Columnas adicionales del CSV
                     info_cols = ['Nom_Est', 'porc_datos', 'departamento', 'municipio', 'vereda']
                     
-                    # Filtra las columnas de años
-                    year_cols_filtered = [str(year) for year in range(start_year, end_year + 1)]
-                    
-                    # Asegura que las columnas existan antes de seleccionarlas
-                    cols_to_display = [col for col in info_cols + year_cols_filtered if col in df.columns]
+                    cols_to_display = [col for col in info_cols + years_to_analyze_present if col in df.columns]
 
                     st.dataframe(selected_stations_df[cols_to_display].set_index('Nom_Est'))
+
+                    # Nueva tabla con estadísticas
+                    st.subheader("Estadísticas de Precipitación")
+                    
+                    # Prepara el DataFrame para estadísticas
+                    stats_df = selected_stations_df[['Nom_Est', 'municipio', 'vereda']].copy()
+                    
+                    if years_to_analyze_present:
+                        # Calcular max, min, mean, std
+                        stats_df['Precipitación Máxima (mm)'] = selected_stations_df[years_to_analyze_present].max(axis=1)
+                        stats_df['Año Máximo'] = selected_stations_df[years_to_analyze_present].idxmax(axis=1)
+                        stats_df['Precipitación Mínima (mm)'] = selected_stations_df[years_to_analyze_present].min(axis=1)
+                        stats_df['Año Mínimo'] = selected_stations_df[years_to_analyze_present].idxmin(axis=1)
+                        stats_df['Precipitación Media (mm)'] = selected_stations_df[years_to_analyze_present].mean(axis=1).round(2)
+                        stats_df['Desviación Estándar'] = selected_stations_df[years_to_analyze_present].std(axis=1).round(2)
+
+                    st.dataframe(stats_df.set_index('Nom_Est'))
 
             # --- Pestaña para gráficos ---
             with tab2:
@@ -168,14 +186,12 @@ if df is not None:
                 if selected_stations_df.empty:
                     st.info("Por favor, selecciona al menos una estación en la barra lateral.")
                 else:
-                    # Gráfico de línea/barra
                     st.subheader("Precipitación Anual por Estación")
                     chart_type = st.radio("Elige el tipo de gráfico:", ('Líneas', 'Barras'))
                     
-                    # Prepara los datos para graficar
                     df_melted = selected_stations_df.melt(
                         id_vars=['Nom_Est'],
-                        value_vars=years_to_analyze,
+                        value_vars=years_to_analyze_present,
                         var_name='Año',
                         value_name='Precipitación'
                     )
@@ -188,7 +204,7 @@ if df is not None:
                             color=alt.Color('Nom_Est', title='Estación'),
                             tooltip=['Nom_Est', 'Año', 'Precipitación']
                         ).interactive()
-                    else: # Barras
+                    else:
                         chart = alt.Chart(df_melted).mark_bar().encode(
                             x=alt.X('Año:O', title='Año', axis=alt.Axis(format='d')),
                             y=alt.Y('Precipitación:Q', title='Precipitación (mm)'),
@@ -198,20 +214,17 @@ if df is not None:
                     
                     st.altair_chart(chart, use_container_width=True)
 
-                    # Gráfico de comparación de estaciones
                     st.subheader("Comparación de Precipitación entre Estaciones")
                     compare_year = st.selectbox(
                         "Selecciona el año para comparar:", 
-                        options=years_to_analyze
+                        options=years_to_analyze_present
                     )
                     
                     sort_order = st.radio("Ordenar por:", ('Mayor a menor', 'Menor a mayor'))
                     
-                    # Prepara los datos para la comparación
                     df_compare = selected_stations_df[['Nom_Est', compare_year]].copy()
                     df_compare = df_compare.rename(columns={compare_year: 'Precipitación'})
                     
-                    # Ordenar los datos
                     if sort_order == 'Mayor a menor':
                         df_compare = df_compare.sort_values(by='Precipitación', ascending=False)
                     else:
@@ -236,22 +249,43 @@ if df is not None:
                 elif selected_stations_df.empty:
                     st.info("Por favor, selecciona al menos una estación en la barra lateral.")
                 else:
-                    # Filtra el GeoDataFrame para incluir solo las estaciones seleccionadas
                     gdf_selected = gdf[gdf['Nom_Est'].isin(selected_stations_list)]
                     
+                    # Fusiona el GeoDataFrame con el DataFrame de estadísticas para tener los datos de precipitación
+                    gdf_selected = gdf_selected.merge(stats_df, on='Nom_Est', how='left')
+
                     if gdf_selected.empty:
                         st.info("Ninguna de las estaciones seleccionadas tiene información geoespacial en el shapefile.")
                     else:
-                        # Se ha movido el cálculo del centro del mapa para evitar errores
                         map_center = [gdf_selected.geometry.centroid.y.mean(), gdf_selected.geometry.centroid.x.mean()]
                         m = folium.Map(location=map_center, zoom_start=8, tiles="CartoDB positron")
                         
-                        # Agrega el GeoDataFrame al mapa de folium
-                        folium.GeoJson(
-                            gdf_selected,
-                            name="Estaciones de Precipitación",
-                            tooltip=folium.features.GeoJsonTooltip(fields=['Nom_Est'])
-                        ).add_to(m)
+                        # Añade los marcadores con pop-up y tooltip
+                        for idx, row in gdf_selected.iterrows():
+                            # Asegúrate de que las coordenadas sean válidas
+                            if pd.notna(row['Latitud']) and pd.notna(row['Longitud']):
+                                # Crea el texto para el pop-up y el tooltip
+                                pop_up_text = (
+                                    f"<b>Estación:</b> {row['Nom_Est']}<br>"
+                                    f"<b>Municipio:</b> {row['municipio']}<br>"
+                                    f"<b>Vereda:</b> {row['vereda']}<br>"
+                                    f"<b>Precipitación Media:</b> {row['Precipitación Media (mm)']:.2f} mm"
+                                )
+                                tooltip_text = f"Estación: {row['Nom_Est']}"
+
+                                # Define el tamaño del icono basado en un valor fijo para mantener la consistencia
+                                icon_size = 12
+
+                                folium.CircleMarker(
+                                    location=[row['Latitud'], row['Longitud']],
+                                    radius=icon_size / 2, # El radio es la mitad del tamaño del icono
+                                    popup=pop_up_text,
+                                    tooltip=tooltip_text,
+                                    color='blue',
+                                    fill=True,
+                                    fill_color='blue',
+                                    fill_opacity=0.6
+                                ).add_to(m)
 
                         folium_static(m)
 
@@ -268,7 +302,7 @@ if df is not None:
                     if animation_type == 'Barras Animadas':
                         df_melted_anim = selected_stations_df.melt(
                             id_vars=['Nom_Est'],
-                            value_vars=years_to_analyze,
+                            value_vars=years_to_analyze_present,
                             var_name='Año',
                             value_name='Precipitación'
                         )
@@ -287,7 +321,7 @@ if df is not None:
                     else: # Mapa Animado
                         df_melted_map = selected_stations_df.melt(
                             id_vars=['Nom_Est', 'Latitud', 'Longitud'],
-                            value_vars=years_to_analyze,
+                            value_vars=years_to_analyze_present,
                             var_name='Año',
                             value_name='Precipitación'
                         )
