@@ -361,50 +361,56 @@ if df is not None:
                     animation_type = st.radio("Selecciona el tipo de animación:", ('Barras Animadas', 'Mapa Animado'))
 
                     if animation_type == 'Barras Animadas':
-                        df_melted_anim = selected_stations_df.melt(
-                            id_vars=['Nom_Est'],
-                            value_vars=years_to_analyze_present,
-                            var_name='Año',
-                            value_name='Precipitación'
-                        )
-                        df_melted_anim['Año'] = df_melted_anim['Año'].astype(str)
+                        if years_to_analyze_present:
+                            df_melted_anim = selected_stations_df.melt(
+                                id_vars=['Nom_Est'],
+                                value_vars=years_to_analyze_present,
+                                var_name='Año',
+                                value_name='Precipitación'
+                            )
+                            df_melted_anim['Año'] = df_melted_anim['Año'].astype(str)
 
-                        fig = px.bar(
-                            df_melted_anim,
-                            x='Nom_Est',
-                            y='Precipitación',
-                            animation_frame='Año',
-                            color='Nom_Est',
-                            title='Precipitación Anual por Estación',
-                            labels={'Nom_Est': 'Estación', 'Precipitación': 'Precipitación (mm)'}
-                        )
-                        st.plotly_chart(fig, use_container_width=True)
+                            fig = px.bar(
+                                df_melted_anim,
+                                x='Nom_Est',
+                                y='Precipitación',
+                                animation_frame='Año',
+                                color='Nom_Est',
+                                title='Precipitación Anual por Estación',
+                                labels={'Nom_Est': 'Estación', 'Precipitación': 'Precipitación (mm)'}
+                            )
+                            st.plotly_chart(fig, use_container_width=True)
+                        else:
+                            st.info("El rango de años seleccionado no contiene datos de precipitación para las estaciones seleccionadas. Por favor, ajusta el rango de años.")
                     else: # Mapa Animado
-                        df_melted_map = selected_stations_df.melt(
-                            id_vars=['Nom_Est', 'Latitud', 'Longitud'],
-                            value_vars=years_to_analyze_present,
-                            var_name='Año',
-                            value_name='Precipitación'
-                        )
-                        
-                        fig = px.scatter_mapbox(
-                            df_melted_map,
-                            lat="Latitud",
-                            lon="Longitud",
-                            hover_name="Nom_Est",
-                            hover_data={"Precipitación": True, "Año": True, "Latitud": False, "Longitud": False},
-                            color="Precipitación",
-                            size="Precipitación",
-                            color_continuous_scale=px.colors.sequential.Bluyl,
-                            animation_frame="Año",
-                            mapbox_style="carto-positron",
-                            zoom=7,
-                            title="Precipitación Anual Animada en el Mapa"
-                        )
-                        fig.update_layout(
-                            mapbox_style="open-street-map",
-                            mapbox_zoom=7,
-                            mapbox_center={"lat": df_melted_map['Latitud'].mean(), "lon": df_melted_map['Longitud'].mean()},
-                        )
-                        fig.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
-                        st.plotly_chart(fig, use_container_width=True)
+                        if years_to_analyze_present:
+                            df_melted_map = selected_stations_df.melt(
+                                id_vars=['Nom_Est', 'Latitud', 'Longitud'],
+                                value_vars=years_to_analyze_present,
+                                var_name='Año',
+                                value_name='Precipitación'
+                            )
+                            
+                            fig = px.scatter_mapbox(
+                                df_melted_map,
+                                lat="Latitud",
+                                lon="Longitud",
+                                hover_name="Nom_Est",
+                                hover_data={"Precipitación": True, "Año": True, "Latitud": False, "Longitud": False},
+                                color="Precipitación",
+                                size="Precipitación",
+                                color_continuous_scale=px.colors.sequential.Bluyl,
+                                animation_frame="Año",
+                                mapbox_style="carto-positron",
+                                zoom=7,
+                                title="Precipitación Anual Animada en el Mapa"
+                            )
+                            fig.update_layout(
+                                mapbox_style="open-street-map",
+                                mapbox_zoom=7,
+                                mapbox_center={"lat": df_melted_map['Latitud'].mean(), "lon": df_melted_map['Longitud'].mean()},
+                            )
+                            fig.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
+                            st.plotly_chart(fig, use_container_width=True)
+                        else:
+                            st.info("El rango de años seleccionado no contiene datos de precipitación para las estaciones seleccionadas. Por favor, ajusta el rango de años.")
