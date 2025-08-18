@@ -70,7 +70,7 @@ with st.expander("📂 Cargar Datos"):
 
 if df is not None:
     # Validar que las columnas necesarias existan
-    required_cols = ['Nom_Est', 'Latitud', 'Longitud', 'municipio', 'Celda_XY', 'vereda', 'estacion']
+    required_cols = ['Nom_Est', 'Latitud', 'Longitud', 'municipio', 'Celda_XY', 'vereda', 'estacion', 'departamento']
     missing_cols = [col for col in required_cols if col not in df.columns]
     
     if missing_cols:
@@ -156,14 +156,16 @@ if df is not None:
                 if selected_stations_df.empty:
                     st.info("Por favor, selecciona al menos una estación en la barra lateral.")
                 else:
-                    st.subheader("Información Adicional de las Estaciones Seleccionadas")
+                    st.subheader("Información básica de las Estaciones Seleccionadas")
                     
                     # Columnas adicionales del CSV
-                    info_cols = ['Nom_Est', 'estacion', 'porc_datos', 'departamento', 'municipio', 'vereda']
+                    info_cols = ['Nom_Est', 'estacion', 'porc_datos', 'departamento', 'municipio', 'vereda', 'Celda_XY']
                     
                     cols_to_display = [col for col in info_cols + years_to_analyze_present if col in df.columns]
 
-                    st.dataframe(selected_stations_df[cols_to_display].set_index('Nom_Est'))
+                    # Aplicar escala de colores a los datos de precipitación
+                    styled_df = selected_stations_df[cols_to_display].set_index('Nom_Est').style.background_gradient(cmap='RdYlBu_r', subset=years_to_analyze_present)
+                    st.dataframe(styled_df)
 
                     # Nueva tabla con estadísticas
                     st.subheader("Estadísticas de Precipitación")
@@ -179,6 +181,21 @@ if df is not None:
                         stats_df['Año Mínimo'] = selected_stations_df[years_to_analyze_present].idxmin(axis=1)
                         stats_df['Precipitación Media (mm)'] = selected_stations_df[years_to_analyze_present].mean(axis=1).round(2)
                         stats_df['Desviación Estándar'] = selected_stations_df[years_to_analyze_present].std(axis=1).round(2)
+
+                        # Agregar una fila de resumen para todas las estaciones
+                        summary_row = pd.DataFrame([{
+                            'Nom_Est': 'Todas las estaciones',
+                            'estacion': '',
+                            'municipio': '',
+                            'vereda': '',
+                            'Precipitación Máxima (mm)': selected_stations_df[years_to_analyze_present].max().max(),
+                            'Año Máximo': selected_stations_df[years_to_analyze_present].idxmax().max(),
+                            'Precipitación Mínima (mm)': selected_stations_df[years_to_analyze_present].min().min(),
+                            'Año Mínimo': selected_stations_df[years_to_analyze_present].idxmin().min(),
+                            'Precipitación Media (mm)': selected_stations_df[years_to_analyze_present].mean().mean().round(2),
+                            'Desviación Estándar': selected_stations_df[years_to_analyze_present].std().mean().round(2)
+                        }])
+                        stats_df = pd.concat([stats_df, summary_row], ignore_index=True)
 
                     st.dataframe(stats_df.set_index('Nom_Est'))
 
