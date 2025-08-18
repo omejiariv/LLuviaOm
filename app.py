@@ -59,11 +59,11 @@ with st.expander("📂 Cargar Datos"):
                     # Usa geopandas para leer el shapefile, que es más robusto
                     gdf = gpd.read_file(shp_path)
                     
-                    # --- NUEVA CORRECCIÓN CLAVE ---
-                    # Si el GeoDataFrame no tiene un CRS, se lo asignamos.
-                    # Asumimos que es EPSG:4326 para que la transformación funcione.
-                    if gdf.crs is None:
-                        gdf.set_crs("EPSG:4326", inplace=True)
+                    # --- NUEVA Y DEFINITIVA CORRECCIÓN CLAVE ---
+                    # El shapefile tiene un CRS conocido pero no asignado.
+                    # Asignamos el CRS correcto (MAGNA-SIRGAS_CMT12) y luego lo convertimos a WGS84.
+                    # El CRS MAGNA-SIRGAS_CMT12 corresponde a EPSG:9377.
+                    gdf.set_crs("EPSG:9377", inplace=True)
                     
                     # Ahora, convierte el GeoDataFrame a EPSG:4326 para que Folium lo pueda usar
                     gdf = gdf.to_crs("EPSG:4326")
