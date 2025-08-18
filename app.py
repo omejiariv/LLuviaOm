@@ -24,17 +24,16 @@ with st.expander("📂 Cargar Datos"):
     # Lógica para cargar el archivo CSV. Primero se intenta el archivo subido, luego el local.
     if uploaded_file_csv:
         try:
-            # Si se sube un archivo, se lee directamente
-            df = pd.read_csv(uploaded_file_csv)
+            # Si se sube un archivo, se lee directamente, usando punto y coma como delimitador.
+            df = pd.read_csv(uploaded_file_csv, sep=';', on_bad_lines='skip')
             st.success("Archivo CSV cargado exitosamente.")
         except Exception as e:
             st.error(f"Error al leer el archivo CSV: {e}")
             st.warning("Se ha intentado ignorar las líneas mal formadas. Si el problema persiste, revisa tu archivo manualmente.")
     else:
         try:
-            # Si no se sube un archivo, se intenta leer el archivo predeterminado local
-            # Se usa el motor de Python para que detecte automáticamente el delimitador
-            df = pd.read_csv('mapaCV.csv', on_bad_lines='skip', sep=None, engine='python')
+            # Si no se sube un archivo, se intenta leer el archivo predeterminado local, usando punto y coma como delimitador.
+            df = pd.read_csv('mapaCV.csv', sep=';', on_bad_lines='skip')
         except FileNotFoundError:
             st.warning("No se encontró el archivo 'mapaCV.csv'. Por favor, cárgalo manualmente.")
         except pd.errors.ParserError as e:
