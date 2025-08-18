@@ -98,19 +98,19 @@ if df is not None:
             # --- Pestaña para opciones de filtrado ---
             st.sidebar.header("⚙️ Opciones de Filtrado")
             
-            # Selectores por municipio y celda
+            # Selectores por municipio y celda, ahora multiseleccionables
             municipios = sorted(df['municipio'].unique())
-            selected_municipio = st.sidebar.selectbox("Elige un municipio:", ['Todos'] + municipios)
+            selected_municipio = st.sidebar.multiselect("Elige uno o más municipios:", municipios)
             
             celdas = sorted(df['Celda_XY'].unique())
-            selected_celda = st.sidebar.selectbox("Elige una celda:", ['Todas'] + celdas)
+            selected_celda = st.sidebar.multiselect("Elige una o más celdas:", celdas)
 
             # Filtrar el DataFrame según la selección de municipio y celda
             filtered_df_by_loc = df.copy()
-            if selected_municipio != 'Todos':
-                filtered_df_by_loc = filtered_df_by_loc[filtered_df_by_loc['municipio'] == selected_municipio]
-            if selected_celda != 'Todas':
-                filtered_df_by_loc = filtered_df_by_loc[filtered_df_by_loc['Celda_XY'] == selected_celda]
+            if selected_municipio:
+                filtered_df_by_loc = filtered_df_by_loc[filtered_df_by_loc['municipio'].isin(selected_municipio)]
+            if selected_celda:
+                filtered_df_by_loc = filtered_df_by_loc[filtered_df_by_loc['Celda_XY'].isin(selected_celda)]
             
             # Selección de estaciones, ordenadas alfabéticamente
             all_stations = sorted(filtered_df_by_loc['Nom_Est'].unique())
@@ -175,25 +175,38 @@ if df is not None:
                     
                     if years_to_analyze_present:
                         # Calcular max, min, mean, std
-                        stats_df['Precipitación Máxima (mm)'] = selected_stations_df[years_to_analyze_present].max(axis=1)
+                        stats_df['Precipitación Máxima (mm)'] = selected_stations_df[years_to_analyze_present].max(axis=1).round(2)
                         stats_df['Año Máximo'] = selected_stations_df[years_to_analyze_present].idxmax(axis=1)
-                        stats_df['Precipitación Mínima (mm)'] = selected_stations_df[years_to_analyze_present].min(axis=1)
+                        stats_df['Precipitación Mínima (mm)'] = selected_stations_df[years_to_analyze_present].min(axis=1).round(2)
                         stats_df['Año Mínimo'] = selected_stations_df[years_to_analyze_present].idxmin(axis=1)
                         stats_df['Precipitación Media (mm)'] = selected_stations_df[years_to_analyze_present].mean(axis=1).round(2)
                         stats_df['Desviación Estándar'] = selected_stations_df[years_to_analyze_present].std(axis=1).round(2)
 
                         # Agregar una fila de resumen para todas las estaciones
+                        df_melted_stats = selected_stations_df.melt(
+                            id_vars=['Nom_Est'],
+                            value_vars=years_to_analyze_present,
+                            var_name='Año',
+                            value_name='Precipitación'
+                        )
+                        
+                        max_precip = df_melted_stats['Precipitación'].max()
+                        min_precip = df_melted_stats['Precipitación'].min()
+                        
+                        max_year = df_melted_stats[df_melted_stats['Precipitación'] == max_precip]['Año'].iloc[0]
+                        min_year = df_melted_stats[df_melted_stats['Precipitación'] == min_precip]['Año'].iloc[0]
+
                         summary_row = pd.DataFrame([{
                             'Nom_Est': 'Todas las estaciones',
                             'estacion': '',
                             'municipio': '',
                             'vereda': '',
-                            'Precipitación Máxima (mm)': selected_stations_df[years_to_analyze_present].max().max(),
-                            'Año Máximo': selected_stations_df[years_to_analyze_present].idxmax().max(),
-                            'Precipitación Mínima (mm)': selected_stations_df[years_to_analyze_present].min().min(),
-                            'Año Mínimo': selected_stations_df[years_to_analyze_present].idxmin().min(),
-                            'Precipitación Media (mm)': selected_stations_df[years_to_analyze_present].mean().mean().round(2),
-                            'Desviación Estándar': selected_stations_df[years_to_analyze_present].std().mean().round(2)
+                            'Precipitación Máxima (mm)': max_precip,
+                            'Año Máximo': max_year,
+                            'Precipitación Mínima (mm)': min_precip,
+                            'Año Mínimo': min_year,
+                            'Precipitación Media (mm)': df_melted_stats['Precipitación'].mean().round(2),
+                            'Desviación Estándar': df_melted_stats['Precipitación'].std().round(2)
                         }])
                         stats_df = pd.concat([stats_df, summary_row], ignore_index=True)
 
@@ -280,6 +293,11 @@ if df is not None:
                         # Crear el mapa de Folium
                         map_center = [gdf_selected.geometry.centroid.y.mean(), gdf_selected.geometry.centroid.x.mean()]
                         m = folium.Map(location=map_center, zoom_start=8, tiles="CartoDB positron")
+
+                        # Ajustar el encuadre del mapa a las estaciones seleccionadas
+                        bounds = [[gdf_selected.total_bounds[1], gdf_selected.total_bounds[0]], 
+                                  [gdf_selected.total_bounds[3], gdf_selected.total_bounds[2]]]
+                        m.fit_bounds(bounds)
                         
                         # Añadir las áreas (polígonos) del shapefile al mapa
                         folium.GeoJson(
