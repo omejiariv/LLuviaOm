@@ -20,20 +20,26 @@ with st.expander("📂 Cargar Datos"):
     # Carga de archivos CSV
     uploaded_file_csv = st.file_uploader("Cargar archivo .csv (mapaCV.csv)", type="csv")
     df = None
+    
+    # Lógica para cargar el archivo CSV. Primero se intenta el archivo subido, luego el local.
     if uploaded_file_csv:
         try:
-            # Intentar leer el archivo, manejando errores de delimitador o líneas mal formadas
-            df = pd.read_csv(uploaded_file_csv, on_bad_lines='skip', sep=None, engine='python')
+            # Si se sube un archivo, se lee directamente
+            df = pd.read_csv(uploaded_file_csv)
             st.success("Archivo CSV cargado exitosamente.")
         except Exception as e:
             st.error(f"Error al leer el archivo CSV: {e}")
             st.warning("Se ha intentado ignorar las líneas mal formadas. Si el problema persiste, revisa tu archivo manualmente.")
     else:
         try:
-            # Intentar leer el archivo predeterminado si no se ha subido uno nuevo
+            # Si no se sube un archivo, se intenta leer el archivo predeterminado local
+            # Se usa el motor de Python para que detecte automáticamente el delimitador
             df = pd.read_csv('mapaCV.csv', on_bad_lines='skip', sep=None, engine='python')
-        except (FileNotFoundError, pd.errors.ParserError):
-            st.warning("No se pudo leer 'mapaCV.csv'. Por favor, cárgalo manualmente o revisa su formato.")
+        except FileNotFoundError:
+            st.warning("No se encontró el archivo 'mapaCV.csv'. Por favor, cárgalo manualmente.")
+        except pd.errors.ParserError as e:
+            st.error(f"Error al leer el archivo CSV local: {e}")
+            st.warning("El formato del archivo local es incorrecto. Intenta cargarlo manualmente.")
             df = None
 
     # Carga de archivos Shapefile
@@ -53,7 +59,6 @@ with st.expander("📂 Cargar Datos"):
             st.error(f"Error al leer los archivos shapefile: {e}")
     else:
         try:
-            # Se ha cambiado 'mapasCV.shp' por 'mapaCV.shp' para coincidir con el nombre de archivo del usuario.
             sf = shapefile.Reader('mapaCV.shp')
         except FileNotFoundError:
             st.warning("No se encontraron los archivos shapefile en el directorio. Por favor, cárgalos manualmente.")
