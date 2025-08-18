@@ -73,6 +73,13 @@ if df is not None:
         # Renombrar columnas para claridad en el código
         df.rename(columns={'y': 'Latitud', 'x': 'Longitud'}, inplace=True)
         
+        # Convertir columnas a tipo numérico, manejando errores de 'nan'
+        df['Latitud'] = pd.to_numeric(df['Latitud'], errors='coerce')
+        df['Longitud'] = pd.to_numeric(df['Longitud'], errors='coerce')
+
+        # Eliminar filas con valores NaN en latitud/longitud
+        df.dropna(subset=['Latitud', 'Longitud'], inplace=True)
+        
         # --- Configuración de pestañas ---
         tab1, tab2, tab3, tab4 = st.tabs([
             "📊 Datos Tabulados", 
@@ -215,7 +222,7 @@ if df is not None:
             elif selected_stations_df.empty:
                 st.info("Por favor, selecciona al menos una estación en la barra lateral.")
             else:
-                # Crear un mapa base con Folium
+                # Se ha movido el cálculo del centro del mapa para evitar errores en caso de no haber estaciones seleccionadas
                 map_center = [selected_stations_df['Latitud'].mean(), selected_stations_df['Longitud'].mean()]
                 m = folium.Map(location=map_center, zoom_start=8, tiles="CartoDB positron")
                 
