@@ -38,7 +38,7 @@ with st.expander("📂 Cargar Datos"):
             # Renombrar columnas con los nombres correctos del usuario
             df = df.rename(columns={'Mpio': 'municipio', 'NOMBRE_VER': 'vereda'})
             st.warning("Se ha cargado el archivo CSV usando ';' como separador.")
-        except (FileNotFound-Error, pd.errors.ParserError):
+        except (FileNotFoundError, pd.errors.ParserError):
             st.warning("No se pudo leer 'mapaCV.csv'. Por favor, cárgalo manualmente o revisa su formato.")
             df = None
 
@@ -70,7 +70,7 @@ with st.expander("📂 Cargar Datos"):
 
 if df is not None:
     # Validar que las columnas necesarias existan
-    required_cols = ['Nom_Est', 'Latitud', 'Longitud', 'municipio', 'Celda_XY', 'vereda']
+    required_cols = ['Nom_Est', 'Latitud', 'Longitud', 'municipio', 'Celda_XY', 'vereda', 'estacion']
     missing_cols = [col for col in required_cols if col not in df.columns]
     
     if missing_cols:
@@ -159,7 +159,7 @@ if df is not None:
                     st.subheader("Información Adicional de las Estaciones Seleccionadas")
                     
                     # Columnas adicionales del CSV
-                    info_cols = ['Nom_Est', 'porc_datos', 'departamento', 'municipio', 'vereda']
+                    info_cols = ['Nom_Est', 'estacion', 'porc_datos', 'departamento', 'municipio', 'vereda']
                     
                     cols_to_display = [col for col in info_cols + years_to_analyze_present if col in df.columns]
 
@@ -169,7 +169,7 @@ if df is not None:
                     st.subheader("Estadísticas de Precipitación")
                     
                     # Prepara el DataFrame para estadísticas
-                    stats_df = selected_stations_df[['Nom_Est', 'municipio', 'vereda']].copy()
+                    stats_df = selected_stations_df[['Nom_Est', 'estacion', 'municipio', 'vereda']].copy()
                     
                     if years_to_analyze_present:
                         # Calcular max, min, mean, std
@@ -260,9 +260,20 @@ if df is not None:
                     if gdf_selected.empty:
                         st.info("Ninguna de las estaciones seleccionadas tiene información geoespacial en el shapefile.")
                     else:
+                        # Crear el mapa de Folium
                         map_center = [gdf_selected.geometry.centroid.y.mean(), gdf_selected.geometry.centroid.x.mean()]
                         m = folium.Map(location=map_center, zoom_start=8, tiles="CartoDB positron")
                         
+                        # Añadir las áreas (polígonos) del shapefile al mapa
+                        folium.GeoJson(
+                            gdf_selected.to_json(),
+                            name='Áreas del Shapefile',
+                            tooltip=folium.features.GeoJsonTooltip(fields=['Nom_Est', 'municipio', 'vereda', 'Precipitación Media (mm)'],
+                                                                    aliases=['Estación', 'Municipio', 'Vereda', 'Precipitación Media'],
+                                                                    style=("background-color: white; color: #333333; font-family: sans-serif; font-size: 12px; padding: 10px;"))
+                        ).add_to(m)
+
+                        # Añadir los marcadores circulares para las estaciones
                         for idx, row in gdf_selected.iterrows():
                             if pd.notna(row['Latitud']) and pd.notna(row['Longitud']):
                                 pop_up_text = (
