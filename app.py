@@ -22,22 +22,19 @@ with st.expander("📂 Cargar Datos"):
     df = None
     if uploaded_file_csv:
         try:
-            df = pd.read_csv(uploaded_file_csv)
+            # Intentar leer el archivo, manejando errores de delimitador o líneas mal formadas
+            df = pd.read_csv(uploaded_file_csv, on_bad_lines='skip', sep=None, engine='python')
             st.success("Archivo CSV cargado exitosamente.")
         except Exception as e:
             st.error(f"Error al leer el archivo CSV: {e}")
+            st.warning("Se ha intentado ignorar las líneas mal formadas. Si el problema persiste, revisa tu archivo manualmente.")
     else:
         try:
-            # Intentar leer con el delimitador predeterminado (coma)
-            df = pd.read_csv('mapaCV.csv')
+            # Intentar leer el archivo predeterminado si no se ha subido uno nuevo
+            df = pd.read_csv('mapaCV.csv', on_bad_lines='skip', sep=None, engine='python')
         except (FileNotFoundError, pd.errors.ParserError):
-            try:
-                # Si falla, intentar con punto y coma
-                df = pd.read_csv('mapaCV.csv', sep=';')
-                st.warning("Se ha cargado el archivo CSV usando ';' como separador.")
-            except (FileNotFoundError, pd.errors.ParserError):
-                st.warning("No se pudo leer 'mapaCV.csv'. Por favor, cárgalo manualmente o revisa su formato.")
-                df = None
+            st.warning("No se pudo leer 'mapaCV.csv'. Por favor, cárgalo manualmente o revisa su formato.")
+            df = None
 
     # Carga de archivos Shapefile
     uploaded_shp = st.file_uploader("Cargar archivo .shp", type="shp")
