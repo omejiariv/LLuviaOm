@@ -37,7 +37,7 @@ with st.expander("📂 Cargar Datos"):
             # Intentar leer el archivo local con el delimitador ';'
             df = pd.read_csv('mapaCV.csv', sep=';')
             st.warning("Se ha cargado el archivo CSV usando ';' como separador.")
-        except (FileNotFoundError, pd.errors.ParserError):
+        except (FileNotFoundNerror, pd.errors.ParserError):
             st.warning("No se pudo leer 'mapaCV.csv'. Por favor, cárgalo manualmente o revisa su formato.")
             df = None
 
@@ -58,7 +58,12 @@ with st.expander("📂 Cargar Datos"):
                     shp_path = os.path.join(temp_dir, shp_files[0])
                     # Usa geopandas para leer el shapefile, que es más robusto
                     gdf = gpd.read_file(shp_path)
-                    st.success("Archivos Shapefile cargados exitosamente.")
+                    
+                    # --- CORRECCIÓN CLAVE ---
+                    # Convierte el GeoDataFrame a EPSG:4326 para que Folium lo pueda usar
+                    gdf = gdf.to_crs("EPSG:4326")
+                    
+                    st.success("Archivos Shapefile cargados exitosamente y sistema de coordenadas convertido a WGS84.")
                 else:
                     st.error("No se encontró ningún archivo .shp en el archivo ZIP. Asegúrate de que el archivo .zip contenga al menos un .shp.")
                     gdf = None
