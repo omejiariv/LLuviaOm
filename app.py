@@ -239,8 +239,10 @@ if df is not None:
                             ).add_to(m)
 
                         folium_static(m)
+                    except TypeError:
+                        st.error("Error al procesar el shapefile: El programa no pudo leer la información de las estaciones. Por favor, verifica que los archivos .shp, .shx y .dbf sean válidos y se hayan cargado correctamente. Este problema puede ocurrir si la estructura interna del archivo no es compatible con la biblioteca de Python.")
                     except Exception as e:
-                        st.error(f"Error al procesar el shapefile: {e}. Por favor, asegúrate de que los archivos cargados sean válidos y no estén dañados.")
+                        st.error(f"Error inesperado al procesar el shapefile: {e}. Por favor, asegúrate de que los archivos cargados sean válidos y no estén dañados.")
 
             # --- Pestaña para animaciones ---
             with tab4:
