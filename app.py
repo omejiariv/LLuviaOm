@@ -59,11 +59,15 @@ with st.expander("📂 Cargar Datos"):
                     # Usa geopandas para leer el shapefile, que es más robusto
                     gdf = gpd.read_file(shp_path)
                     
-                    # --- CORRECCIÓN CLAVE ---
+                    # --- NUEVA CORRECCIÓN CLAVE ---
+                    # Si el GeoDataFrame no tiene un CRS, se lo asignamos
+                    if gdf.crs is None:
+                        gdf.set_crs("EPSG:4326", inplace=True)
+                    
                     # Convierte el GeoDataFrame a EPSG:4326 para que Folium lo pueda usar
                     gdf = gdf.to_crs("EPSG:4326")
                     
-                    st.success("Archivos Shapefile cargados exitosamente y sistema de coordenadas convertido a WGS84.")
+                    st.success("Archivos Shapefile cargados exitosamente y sistema de coordenadas configurado y convertido a WGS84.")
                 else:
                     st.error("No se encontró ningún archivo .shp en el archivo ZIP. Asegúrate de que el archivo .zip contenga al menos un .shp.")
                     gdf = None
