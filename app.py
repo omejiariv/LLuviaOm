@@ -162,10 +162,10 @@ if df is not None:
                     info_cols = ['Nom_Est', 'estacion', 'porc_datos', 'departamento', 'municipio', 'vereda', 'Celda_XY']
                     
                     cols_to_display = [col for col in info_cols + years_to_analyze_present if col in df.columns]
+                    df_to_display = selected_stations_df[cols_to_display].set_index('Nom_Est')
 
                     # Aplicar escala de colores a los datos de precipitación
-                    df_to_display = selected_stations_df[cols_to_display].set_index('Nom_Est')
-                    if years_to_analyze_present:
+                    if not df_to_display.empty and years_to_analyze_present:
                         styled_df = df_to_display.style.background_gradient(cmap='RdYlBu_r', subset=years_to_analyze_present)
                         st.dataframe(styled_df)
                     else:
