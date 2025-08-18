@@ -5,7 +5,11 @@ import folium
 from streamlit_folium import folium_static
 import plotly.express as px
 import plotly.graph_objects as go
-import shapefile
+# Import geopandas, zipfile, tempfile y os para el nuevo enfoque
+import geopandas as gpd
+import zipfile
+import tempfile
+import os
 import io
 
 # Título de la aplicación
@@ -15,7 +19,7 @@ st.markdown("---")
 
 # --- Sección para la carga de datos ---
 with st.expander("📂 Cargar Datos"):
-    st.write("Carga tu archivo `mapaCV.csv` y los archivos del shapefile (`.shp`, `.shx`, `.dbf`).")
+    st.write("Carga tu archivo `mapaCV.csv` y los archivos del shapefile (`.shp`, `.shx`, `.dbf`) comprimidos en un único archivo `.zip`.")
     
     # Carga de archivos CSV
     uploaded_file_csv = st.file_uploader("Cargar archivo .csv (mapaCV.csv)", type="csv")
@@ -37,27 +41,29 @@ with st.expander("📂 Cargar Datos"):
             st.warning("No se pudo leer 'mapaCV.csv'. Por favor, cárgalo manualmente o revisa su formato.")
             df = None
 
-    # Carga de archivos Shapefile
-    uploaded_shp = st.file_uploader("Cargar archivo .shp", type="shp")
-    uploaded_shx = st.file_uploader("Cargar archivo .shx", type="shx")
-    uploaded_dbf = st.file_uploader("Cargar archivo .dbf", type="dbf")
-
-    sf = None
-    if uploaded_shp and uploaded_shx and uploaded_dbf:
+    # Carga de archivo Shapefile en formato ZIP
+    uploaded_zip = st.file_uploader("Cargar shapefile (.zip)", type="zip")
+    gdf = None
+    if uploaded_zip:
         try:
-            shp_data = uploaded_shp.getvalue()
-            shx_data = uploaded_shx.getvalue()
-            dbf_data = uploaded_dbf.getvalue()
-            sf = shapefile.Reader(shp=io.BytesIO(shp_data), shx=io.BytesIO(shx_data), dbf=io.BytesIO(dbf_data))
-            st.success("Archivos Shapefile cargados exitosamente.")
+            # Crea un directorio temporal para extraer los archivos
+            with tempfile.TemporaryDirectory() as temp_dir:
+                # Extrae el contenido del archivo zip
+                with zipfile.ZipFile(uploaded_zip, 'r') as zip_ref:
+                    zip_ref.extractall(temp_dir)
+                
+                # Encuentra el archivo .shp en el directorio extraído
+                shp_files = [f for f in os.listdir(temp_dir) if f.endswith('.shp')]
+                if shp_files:
+                    shp_path = os.path.join(temp_dir, shp_files[0])
+                    # Usa geopandas para leer el shapefile, que es más robusto
+                    gdf = gpd.read_file(shp_path)
+                    st.success("Archivos Shapefile cargados exitosamente.")
+                else:
+                    st.error("No se encontró ningún archivo .shp en el archivo ZIP. Asegúrate de que el archivo .zip contenga al menos un .shp.")
+                    gdf = None
         except Exception as e:
-            st.error(f"Error al leer los archivos shapefile: {e}")
-    else:
-        try:
-            sf = shapefile.Reader('mapaCV.shp')
-        except FileNotFoundError:
-            st.warning("No se encontraron los archivos shapefile en el directorio. Por favor, cárgalos manualmente.")
-            sf = None
+            st.error(f"Error al procesar el archivo ZIP: {e}")
 
 if df is not None:
     # Validar que las columnas necesarias existan
@@ -215,34 +221,29 @@ if df is not None:
                 st.header("🌎 Mapa de Ubicación de las Estaciones")
                 st.markdown("---")
                 
-                if sf is None:
-                    st.info("Por favor, carga los archivos del shapefile en la sección 'Cargar Datos'.")
+                if gdf is None:
+                    st.info("Por favor, carga el archivo shapefile en formato .zip en la sección 'Cargar Datos'.")
                 elif selected_stations_df.empty:
                     st.info("Por favor, selecciona al menos una estación en la barra lateral.")
                 else:
-                    try:
-                        # Se ha movido el cálculo del centro del mapa para evitar errores en caso de no haber estaciones seleccionadas
-                        map_center = [selected_stations_df['Latitud'].mean(), selected_stations_df['Longitud'].mean()]
+                    # Filtra el GeoDataFrame para incluir solo las estaciones seleccionadas
+                    gdf_selected = gdf[gdf['Nom_Est'].isin(selected_stations_list)]
+                    
+                    if gdf_selected.empty:
+                        st.info("Ninguna de las estaciones seleccionadas tiene información geoespacial en el shapefile.")
+                    else:
+                        # Se ha movido el cálculo del centro del mapa para evitar errores
+                        map_center = [gdf_selected.geometry.centroid.y.mean(), gdf_selected.geometry.centroid.x.mean()]
                         m = folium.Map(location=map_center, zoom_start=8, tiles="CartoDB positron")
                         
-                        # Cargar y añadir las estaciones del shapefile de forma segura
-                        for shape, record in sf.iterShapeRecords():
-                            estacion_nombre = record['Nom_Est']
-                            lon, lat = shape.points[0][0], shape.points[0][1]
-                            folium.CircleMarker(
-                                location=[lat, lon],
-                                radius=5,
-                                color='blue',
-                                fill=True,
-                                fill_color='blue',
-                                tooltip=f"Estación: {estacion_nombre}"
-                            ).add_to(m)
+                        # Agrega el GeoDataFrame al mapa de folium
+                        folium.GeoJson(
+                            gdf_selected,
+                            name="Estaciones de Precipitación",
+                            tooltip=folium.features.GeoJsonTooltip(fields=['Nom_Est'])
+                        ).add_to(m)
 
                         folium_static(m)
-                    except TypeError:
-                        st.error("Error al procesar el shapefile: El programa no pudo leer la información de las estaciones. Por favor, verifica que los archivos .shp, .shx y .dbf sean válidos y se hayan cargado correctamente. Este problema puede ocurrir si la estructura interna del archivo no es compatible con la biblioteca de Python.")
-                    except Exception as e:
-                        st.error(f"Error inesperado al procesar el shapefile: {e}. Por favor, asegúrate de que los archivos cargados sean válidos y no estén dañados.")
 
             # --- Pestaña para animaciones ---
             with tab4:
