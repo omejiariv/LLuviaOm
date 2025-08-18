@@ -37,7 +37,7 @@ with st.expander("📂 Cargar Datos"):
             # Intentar leer el archivo local con el delimitador ';'
             df = pd.read_csv('mapaCV.csv', sep=';')
             st.warning("Se ha cargado el archivo CSV usando ';' como separador.")
-        except (FileNotFoundNerror, pd.errors.ParserError):
+        except (FileNotFoundError, pd.errors.ParserError):
             st.warning("No se pudo leer 'mapaCV.csv'. Por favor, cárgalo manualmente o revisa su formato.")
             df = None
 
@@ -60,11 +60,12 @@ with st.expander("📂 Cargar Datos"):
                     gdf = gpd.read_file(shp_path)
                     
                     # --- NUEVA CORRECCIÓN CLAVE ---
-                    # Si el GeoDataFrame no tiene un CRS, se lo asignamos
+                    # Si el GeoDataFrame no tiene un CRS, se lo asignamos.
+                    # Asumimos que es EPSG:4326 para que la transformación funcione.
                     if gdf.crs is None:
                         gdf.set_crs("EPSG:4326", inplace=True)
                     
-                    # Convierte el GeoDataFrame a EPSG:4326 para que Folium lo pueda usar
+                    # Ahora, convierte el GeoDataFrame a EPSG:4326 para que Folium lo pueda usar
                     gdf = gdf.to_crs("EPSG:4326")
                     
                     st.success("Archivos Shapefile cargados exitosamente y sistema de coordenadas configurado y convertido a WGS84.")
