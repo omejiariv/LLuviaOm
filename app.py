@@ -303,6 +303,8 @@ if df is not None and not df.empty:
         
         if selected_stations_df.empty:
             st.info("Por favor, selecciona al menos una estación en la barra lateral.")
+        elif not years_to_analyze_present:
+            st.info("El rango de años seleccionado no contiene datos de precipitación para las estaciones seleccionadas. Por favor, ajusta el rango de años.")
         else:
             # Controles para el eje vertical
             st.subheader("Opciones de Eje Vertical (Y)")
@@ -512,6 +514,8 @@ if df is not None and not df.empty:
         
         if selected_stations_df.empty:
             st.info("Por favor, selecciona al menos una estación en la barra lateral.")
+        elif not years_to_analyze_present:
+            st.info("El rango de años seleccionado no contiene datos de precipitación para las estaciones seleccionadas. Por favor, ajusta el rango de años.")
         else:
             animation_type = st.radio("Selecciona el tipo de animación:", ('Barras Animadas', 'Mapa Animado'))
 
