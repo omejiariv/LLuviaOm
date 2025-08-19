@@ -180,6 +180,7 @@ if data_df is not None and not data_df.empty:
         if selected_stations_df.empty:
             st.info("Por favor, selecciona al menos una estación en la barra lateral.")
         else:
+            # Info de la tabla 1: Info básica y datos por año
             st.subheader("Información básica de las Estaciones Seleccionadas")
             info_cols = ['Nom_Est', 'Id_estacion', 'municipio', 'vereda', 'Celda_XY']
             cols_to_display = [col for col in info_cols + years_to_analyze_present if col in data_df.columns]
@@ -195,7 +196,8 @@ if data_df is not None and not data_df.empty:
             else:
                 st.dataframe(df_to_display)
             
-            st.subheader("Estadísticas de Precipitación")
+            # Info de la tabla 2: Estadísticas por estación
+            st.subheader("Estadísticas de Precipitación por Estación")
             stats_df = selected_stations_df[['Nom_Est', 'Id_estacion', 'municipio', 'vereda']].copy()
 
             if years_to_analyze_present and not selected_stations_df.empty:
@@ -229,6 +231,18 @@ if data_df is not None and not data_df.empty:
                     stats_df = pd.concat([stats_df, summary_row], ignore_index=True)
                 
                 st.dataframe(stats_df.set_index('Nom_Est'))
+            
+            # Info de la tabla 3: Estadísticas por celda
+            st.subheader("Estadísticas Agregadas por Celda")
+            if 'Celda_XY' in selected_stations_df.columns:
+                celda_stats_df = selected_stations_df.groupby('Celda_XY')[years_to_analyze_present].agg(
+                    Cant_est=('Nom_Est', 'count'),
+                    **{f'Lluvia Prom. {y}': (y, 'mean') for y in years_to_analyze_present}
+                ).reset_index().round(2)
+                st.dataframe(celda_stats_df.set_index('Celda_XY'))
+            else:
+                st.info("La columna 'Celda_XY' no se encontró en los datos, por lo que no se puede mostrar esta tabla.")
+
 
     # --- Pestaña 2: Gráficos de Precipitación ---
     with tab2:
