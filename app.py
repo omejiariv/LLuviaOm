@@ -236,6 +236,27 @@ if df is not None:
                 if selected_stations_df.empty:
                     st.info("Por favor, selecciona al menos una estación en la barra lateral.")
                 else:
+                    # Controles para el eje vertical
+                    st.subheader("Opciones de Eje Vertical (Y)")
+                    axis_control = st.radio("Elige el control del eje Y:", ('Automático', 'Personalizado'))
+                    y_range = None
+                    if axis_control == 'Personalizado':
+                        df_melted_temp = selected_stations_df.melt(
+                            id_vars=['Nom_Est'],
+                            value_vars=years_to_analyze_present,
+                            var_name='Año',
+                            value_name='Precipitación'
+                        )
+                        min_precip = df_melted_temp['Precipitación'].min()
+                        max_precip = df_melted_temp['Precipitación'].max()
+                        
+                        min_y = st.number_input("Valor mínimo del eje Y:", value=float(min_precip), format="%.2f")
+                        max_y = st.number_input("Valor máximo del eje Y:", value=float(max_precip), format="%.2f")
+                        if min_y >= max_y:
+                            st.warning("El valor mínimo debe ser menor que el valor máximo.")
+                        else:
+                            y_range = (min_y, max_y)
+
                     st.subheader("Precipitación Anual por Estación")
                     chart_type = st.radio("Elige el tipo de gráfico:", ('Líneas', 'Barras'))
                     
@@ -247,17 +268,20 @@ if df is not None:
                     )
                     df_melted['Año'] = df_melted['Año'].astype(int)
 
+                    # Aplicar el rango del eje Y si es personalizado
+                    y_scale = alt.Scale(domain=y_range) if y_range else alt.Scale()
+
                     if chart_type == 'Líneas':
                         chart = alt.Chart(df_melted).mark_line(point=True).encode(
                             x=alt.X('Año:O', title='Año', axis=alt.Axis(format='d')),
-                            y=alt.Y('Precipitación:Q', title='Precipitación (mm)'),
+                            y=alt.Y('Precipitación:Q', title='Precipitación (mm)', scale=y_scale),
                             color=alt.Color('Nom_Est', title='Estación'),
                             tooltip=['Nom_Est', 'Año', 'Precipitación']
                         ).interactive()
                     else:
                         chart = alt.Chart(df_melted).mark_bar().encode(
                             x=alt.X('Año:O', title='Año', axis=alt.Axis(format='d')),
-                            y=alt.Y('Precipitación:Q', title='Precipitación (mm)'),
+                            y=alt.Y('Precipitación:Q', title='Precipitación (mm)', scale=y_scale),
                             color=alt.Color('Nom_Est', title='Estación'),
                             tooltip=['Nom_Est', 'Año', 'Precipitación']
                         ).interactive()
@@ -280,12 +304,14 @@ if df is not None:
                     else:
                         df_compare = df_compare.sort_values(by='Precipitación', ascending=True)
 
+                    # Aplicar el rango del eje Y al gráfico de barras de Plotly
                     fig_bar = px.bar(
                         df_compare,
                         x='Nom_Est',
                         y='Precipitación',
                         title=f'Precipitación en el año {compare_year}',
-                        labels={'Nom_Est': 'Estación', 'Precipitación': 'Precipitación (mm)'}
+                        labels={'Nom_Est': 'Estación', 'Precipitación': 'Precipitación (mm)'},
+                        range_y=y_range
                     )
                     st.plotly_chart(fig_bar, use_container_width=True)
 
@@ -302,27 +328,46 @@ if df is not None:
                     st.write("El mapa se ajusta automáticamente para mostrar todas las estaciones seleccionadas. Si el mapa parece muy alejado, es porque las estaciones están muy distantes entre sí. Puedes usar los botones de abajo para centrar la vista.")
 
                     # Botones para centrar el mapa
-                    col_map1, col_map2 = st.columns(2)
+                    col_map1, col_map2, col_map3 = st.columns(3)
                     with col_map1:
-                        if st.button("Centrar Mapa en Colombia"):
-                            st.session_state.reset_map = True
+                        if st.button("Centrar en Colombia"):
+                            st.session_state.reset_map_colombia = True
                             st.session_state.reset_map_antioquia = False
+                            st.session_state.center_on_stations = False
                     with col_map2:
-                        # Nuevo botón para centrar en Antioquia
                         if st.button("Centrar en Antioquia"):
                             st.session_state.reset_map_antioquia = True
-                            st.session_state.reset_map = False
+                            st.session_state.reset_map_colombia = False
+                            st.session_state.center_on_stations = False
+                    with col_map3:
+                        # Nuevo botón para centrar en las estaciones seleccionadas
+                        if st.button("Centrar en Estaciones Seleccionadas"):
+                            st.session_state.center_on_stations = True
+                            st.session_state.reset_map_colombia = False
+                            st.session_state.reset_map_antioquia = False
 
                     # Crear el mapa de Folium
-                    if 'reset_map' in st.session_state and st.session_state.reset_map:
+                    if 'reset_map_colombia' in st.session_state and st.session_state.reset_map_colombia:
                         map_center = [4.5709, -74.2973] # Centro de Colombia
                         m = folium.Map(location=map_center, zoom_start=6, tiles="CartoDB positron")
-                        st.session_state.reset_map = False
+                        st.session_state.reset_map_colombia = False
                     elif 'reset_map_antioquia' in st.session_state and st.session_state.reset_map_antioquia:
                         # Coordenadas aproximadas del centro de Antioquia
                         map_center = [6.2442, -75.5812]
                         m = folium.Map(location=map_center, zoom_start=8, tiles="CartoDB positron")
                         st.session_state.reset_map_antioquia = False
+                    elif 'center_on_stations' in st.session_state and st.session_state.center_on_stations:
+                        gdf_selected = gdf[gdf['Nom_Est'].isin(selected_stations_list)]
+                        if not gdf_selected.empty:
+                            map_center = [gdf_selected.geometry.centroid.y.mean(), gdf_selected.geometry.centroid.x.mean()]
+                            m = folium.Map(location=map_center, zoom_start=8, tiles="CartoDB positron")
+                            bounds = [[gdf_selected.total_bounds[1], gdf_selected.total_bounds[0]], 
+                                      [gdf_selected.total_bounds[3], gdf_selected.total_bounds[2]]]
+                            m.fit_bounds(bounds)
+                        else:
+                            map_center = [4.5709, -74.2973] # Fallback to Colombia
+                            m = folium.Map(location=map_center, zoom_start=6, tiles="CartoDB positron")
+                        st.session_state.center_on_stations = False
                     else:
                         gdf_selected = gdf[gdf['Nom_Est'].isin(selected_stations_list)]
                         
@@ -397,6 +442,7 @@ if df is not None:
                             )
                             df_melted_anim['Año'] = df_melted_anim['Año'].astype(str)
 
+                            # Aplicar el rango del eje Y si es personalizado a la animación de barras
                             fig = px.bar(
                                 df_melted_anim,
                                 x='Nom_Est',
@@ -404,7 +450,8 @@ if df is not None:
                                 animation_frame='Año',
                                 color='Nom_Est',
                                 title='Precipitación Anual por Estación',
-                                labels={'Nom_Est': 'Estación', 'Precipitación': 'Precipitación (mm)'}
+                                labels={'Nom_Est': 'Estación', 'Precipitación': 'Precipitación (mm)'},
+                                range_y=y_range
                             )
                             st.plotly_chart(fig, use_container_width=True)
                         else:
@@ -418,6 +465,7 @@ if df is not None:
                                 value_name='Precipitación'
                             )
                             
+                            # Aplicar el rango de color del eje Y si es personalizado a la animación del mapa
                             fig = px.scatter_mapbox(
                                 df_melted_map,
                                 lat="Latitud",
@@ -428,12 +476,13 @@ if df is not None:
                                 size="Precipitación",
                                 color_continuous_scale=px.colors.sequential.Bluyl,
                                 animation_frame="Año",
-                                mapbox_style="open-street-map", # Se cambió el estilo del mapa para mayor confiabilidad
+                                mapbox_style="open-street-map",
                                 zoom=7,
-                                title="Precipitación Anual Animada en el Mapa"
+                                title="Precipitación Anual Animada en el Mapa",
+                                range_color=y_range
                             )
                             fig.update_layout(
-                                mapbox_style="open-street-map", # Se cambió el estilo del mapa para mayor confiabilidad
+                                mapbox_style="open-street-map",
                                 mapbox_zoom=7,
                                 mapbox_center={"lat": df_melted_map['Latitud'].mean(), "lon": df_melted_map['Longitud'].mean()},
                             )
