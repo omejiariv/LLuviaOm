@@ -85,7 +85,7 @@ if df_csv is not None and gdf is not None:
             'celda': ['Celda_XY', 'celda']
         }
         col_mapping_csv = {
-            'Nom_Est': ['Nom_Est', 'nom_est', 'estacion', 'nombre', 'nombre_ver', 'Id_estacion'], # Nuevo alias para Id_estacion
+            'Nom_Est': ['Nom_Est', 'nom_est', 'nombre', 'nombre_ver', 'Id_estacion'], # Nuevo alias para Id_estacion
             'municipio': ['municipio', 'NOMB_MPIO', 'Mpio'],
             'vereda': ['vereda', 'NOMBRE_VER', 'nombre_ver'],
             'celda': ['Celda_XY', 'celda']
@@ -182,7 +182,7 @@ if df is not None and not df.empty:
         else:
             st.subheader("Información básica de las Estaciones Seleccionadas")
             
-            info_cols = ['Nom_Est', 'estacion', 'municipio', 'vereda', 'celda']
+            info_cols = ['Nom_Est', 'Id_estacion', 'municipio', 'vereda', 'celda']
             cols_to_display = [col for col in info_cols + years_to_analyze_present if col in df.columns]
             df_to_display = selected_stations_df[cols_to_display].set_index('Nom_Est')
 
@@ -519,3 +519,4 @@ if df is not None and not df.empty:
                     st.plotly_chart(fig, use_container_width=True)
                 else:
                     st.info("El rango de años seleccionado no contiene datos de precipitación para las estaciones seleccionadas. Por favor, ajusta el rango de años.")
+
