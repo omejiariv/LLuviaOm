@@ -18,7 +18,7 @@ st.markdown("---")
 
 # --- Sección para la carga de datos en la barra lateral ---
 st.sidebar.header("⚙️ Cargar Datos y Opciones de Filtrado")
-with st.sidebar.expander("� Cargar Datos"):
+with st.sidebar.expander("📂 Cargar Datos"):
     st.write("Carga tu archivo `mapaCV.csv` y los archivos del shapefile (`.shp`, `.shx`, `.dbf`) comprimidos en un único archivo `.zip`.")
     
     # Carga de archivos CSV
@@ -69,43 +69,68 @@ with st.sidebar.expander("� Cargar Datos"):
 # --- Proceso de unión y preparación de datos ---
 df = None
 
-# Función robusta para encontrar la columna clave
-def find_column(dataframe, possible_names):
-    """Busca y retorna el nombre de una columna que coincida con una lista de posibles nombres,
-    ignorando mayúsculas y minúsculas."""
-    df_columns_lower = [col.lower() for col in dataframe.columns]
-    for name in possible_names:
-        if name.lower() in df_columns_lower:
-            # Retorna el nombre original de la columna
-            return dataframe.columns[df_columns_lower.index(name.lower())]
-    return None
+# Función robusta para encontrar y estandarizar nombres de columna
+def standardize_columns(dataframe, col_mapping):
+    """
+    Busca columnas en un DataFrame según un mapeo de posibles nombres y las renombra a un nombre estándar.
+    Retorna el DataFrame modificado y un diccionario de los nombres de columna encontrados.
+    """
+    df_cols = [c.lower() for c in dataframe.columns]
+    found_cols = {}
+    
+    for std_name, possible_names in col_mapping.items():
+        found_col_name = None
+        for name in possible_names:
+            if name.lower() in df_cols:
+                # Encuentra el nombre original de la columna
+                found_col_name = dataframe.columns[df_cols.index(name.lower())]
+                break
+        if found_col_name:
+            found_cols[std_name] = found_col_name
+            if found_col_name != std_name:
+                dataframe.rename(columns={found_col_name: std_name}, inplace=True)
+    
+    return dataframe, found_cols
 
 if df_csv is not None and gdf is not None:
     try:
-        # Definir las posibles columnas clave para la unión
-        station_cols_gdf = ['Nom_Est', 'nom_est', 'NOMBRE_VER', 'nombre_ver']
-        station_cols_csv = ['Nom_Est', 'nom_est', 'estacion', 'nombre', 'nombre_ver', 'estacion_id']
+        # Mapeo de columnas para estandarización
+        col_mapping_gdf = {
+            'Nom_Est': ['Nom_Est', 'nom_est', 'NOMBRE_VER', 'nombre_ver'],
+            'municipio': ['NOMB_MPIO', 'nombre_ver', 'Mpio'],
+            'vereda': ['NOMBRE_VER', 'nombre_ver', 'vereda'],
+            'celda': ['Celda_XY', 'celda']
+        }
+        col_mapping_csv = {
+            'Nom_Est': ['Nom_Est', 'nom_est', 'estacion', 'nombre', 'nombre_ver'],
+            'municipio': ['municipio', 'NOMB_MPIO', 'Mpio'],
+            'vereda': ['vereda', 'NOMBRE_VER', 'nombre_ver'],
+            'celda': ['Celda_XY', 'celda']
+        }
         
-        # Encontrar los nombres de columna reales en ambos DataFrames
-        station_col_gdf = find_column(gdf, station_cols_gdf)
-        station_col_csv = find_column(df_csv, station_cols_csv)
+        # Estandarizar columnas en ambos DataFrames
+        gdf, found_cols_gdf = standardize_columns(gdf, col_mapping_gdf)
+        df_csv, found_cols_csv = standardize_columns(df_csv, col_mapping_csv)
         
+        # Verificar que la columna clave de unión exista en ambos
+        station_col_gdf = found_cols_gdf.get('Nom_Est')
+        station_col_csv = found_cols_csv.get('Nom_Est')
+
         if not station_col_gdf or not station_col_csv:
             st.error("Error: No se encontró una columna de 'estación' común en ambos archivos para realizar la unión. Por favor, asegúrate de que ambos archivos tengan una columna para el nombre o ID de la estación (ej. 'Nom_Est', 'estacion', 'nombre_ver').")
             df = None
         else:
             # Unir el GeoDataFrame con el DataFrame del CSV
-            # Utilizamos los nombres de columna dinámicamente encontrados
-            df = gdf.merge(df_csv, left_on=station_col_gdf, right_on=station_col_csv, how='left')
+            # Usamos un left merge para mantener todas las geometrías del mapa
+            df = gdf.merge(df_csv, on='Nom_Est', how='left', suffixes=('_gdf', '_csv'))
 
-            # Normalizar el nombre de la columna unida para que el resto del código funcione
-            if station_col_gdf != 'Nom_Est':
-                df.rename(columns={station_col_gdf: 'Nom_Est'}, inplace=True)
+            # Asegurarse de que las columnas estandarizadas de ubicación existan después del merge
+            # Si existían en un archivo, pero no en el otro, el merge las mantiene
+            # Creamos columnas vacías si no se encontraron en ninguno para evitar KeyError
+            for col in ['municipio', 'vereda', 'celda']:
+                if col not in df.columns:
+                    df[col] = pd.NA
             
-            # Eliminar la columna duplicada del CSV, si existe y no es la misma que la del shapefile
-            if station_col_csv in df.columns and station_col_csv != 'Nom_Est':
-                df.drop(columns=[station_col_csv], inplace=True, errors='ignore')
-
             # Preparar las coordenadas del centroide
             df['Latitud'] = df.geometry.centroid.y
             df['Longitud'] = df.geometry.centroid.x
@@ -199,6 +224,7 @@ if df is not None and not df.empty:
             # Columnas adicionales del CSV
             info_cols = ['Nom_Est', 'estacion', 'municipio', 'vereda', 'celda']
             
+            # Filtra las columnas a mostrar
             cols_to_display = [col for col in info_cols + years_to_analyze_present if col in df.columns]
             df_to_display = selected_stations_df[cols_to_display].set_index('Nom_Est')
 
@@ -216,8 +242,13 @@ if df is not None and not df.empty:
             # Nueva tabla con estadísticas
             st.subheader("Estadísticas de Precipitación")
             
-            # Prepara el DataFrame para estadísticas
-            stats_df = selected_stations_df[['Nom_Est', 'municipio', 'vereda']].copy()
+            # Prepara el DataFrame para estadísticas, asegurándose de que las columnas existan
+            stats_cols = ['Nom_Est']
+            if 'municipio' in selected_stations_df.columns:
+                stats_cols.append('municipio')
+            if 'vereda' in selected_stations_df.columns:
+                stats_cols.append('vereda')
+            stats_df = selected_stations_df[stats_cols].copy()
             
             if years_to_analyze_present and not selected_stations_df.empty:
                 # Calcular max, min, mean, std
@@ -419,21 +450,32 @@ if df is not None and not df.empty:
 
             if not df.empty:
                 gdf_final = df.copy()
-                stats_df_cols = ['Nom_Est', 'municipio', 'vereda', 'Precipitación Media (mm)']
+                stats_df_cols = ['Nom_Est']
+                if 'municipio' in gdf_final.columns:
+                    stats_df_cols.append('municipio')
+                if 'vereda' in gdf_final.columns:
+                    stats_df_cols.append('vereda')
                 
                 # Crear un DataFrame de estadísticas para la visualización del mapa
-                stats_df = selected_stations_df[['Nom_Est', 'municipio', 'vereda']].copy()
+                stats_df = selected_stations_df[stats_df_cols].copy()
                 if years_to_analyze_present:
                     stats_df['Precipitación Media (mm)'] = selected_stations_df[years_to_analyze_present].mean(axis=1).round(2)
                 
                 gdf_final = gdf_final.merge(stats_df, on='Nom_Est', how='left', suffixes=('', '_stat'))
                 
                 # Añadir las áreas (polígonos) del shapefile al mapa
+                tooltip_fields = ['Nom_Est', 'municipio', 'vereda', 'Precipitación Media (mm)']
+                tooltip_aliases = ['Estación', 'Municipio', 'Vereda', 'Precipitación Media']
+                
+                # Ajustar el tooltip para que solo muestre las columnas que existen
+                existing_fields = [f for f in tooltip_fields if f in gdf_final.columns]
+                existing_aliases = [tooltip_aliases[i] for i, f in enumerate(tooltip_fields) if f in gdf_final.columns]
+                
                 folium.GeoJson(
                     gdf_final.to_json(),
                     name='Áreas del Shapefile',
-                    tooltip=folium.features.GeoJsonTooltip(fields=['Nom_Est', 'municipio', 'vereda', 'Precipitación Media (mm)'],
-                                                            aliases=['Estación', 'Municipio', 'Vereda', 'Precipitación Media'],
+                    tooltip=folium.features.GeoJsonTooltip(fields=existing_fields,
+                                                            aliases=existing_aliases,
                                                             style=("background-color: white; color: #333333; font-family: sans-serif; font-size: 12px; padding: 10px;"))
                 ).add_to(m)
 
@@ -442,8 +484,8 @@ if df is not None and not df.empty:
                     if pd.notna(row['Latitud']) and pd.notna(row['Longitud']):
                         pop_up_text = (
                             f"<b>Estación:</b> {row['Nom_Est']}<br>"
-                            f"<b>Municipio:</b> {row['municipio']}<br>"
-                            f"<b>Vereda:</b> {row['vereda']}<br>"
+                            f"<b>Municipio:</b> {row.get('municipio', 'N/A')}<br>"
+                            f"<b>Vereda:</b> {row.get('vereda', 'N/A')}<br>"
                             f"<b>Precipitación Media:</b> {row.get('Precipitación Media (mm)', 'N/A'):.2f} mm"
                         )
                         tooltip_text = f"Estación: {row['Nom_Est']}"
