@@ -320,9 +320,7 @@ if data_df is not None and not data_df.empty:
         st.header("🌎 Mapa de Ubicación de las Estaciones")
         st.markdown("---")
 
-        if 'geometry' not in selected_stations_df.columns:
-            st.info("El archivo de geometría no fue cargado correctamente. Por favor, asegúrate de subir un archivo .zip con el shapefile.")
-        elif selected_stations_df.empty:
+        if selected_stations_df.empty:
             st.info("Por favor, selecciona al menos una estación en la barra lateral.")
         else:
             # Botones para centrar el mapa
@@ -340,18 +338,21 @@ if data_df is not None and not data_df.empty:
             map_center = [4.5709, -74.2973]
             zoom_level = 6
 
-            if st.session_state.map_center_type == 'stations' and not selected_stations_df.empty and 'Latitud' in selected_stations_df.columns:
-                map_center = [selected_stations_df['Latitud'].mean(), selected_stations_df['Longitud'].mean()]
-                zoom_level = 8
+            if st.session_state.map_center_type == 'stations' and not selected_stations_df.empty:
+                if 'geometry' in selected_stations_df.columns and not selected_stations_df.geometry.is_empty.all():
+                    map_center = [selected_stations_df.geometry.centroid.y.mean(), selected_stations_df.geometry.centroid.x.mean()]
+                    zoom_level = 8
+                elif 'Latitud' in selected_stations_df.columns:
+                    map_center = [selected_stations_df['Latitud'].mean(), selected_stations_df['Longitud'].mean()]
+                    zoom_level = 8
             
             m = folium.Map(location=map_center, zoom_start=zoom_level, tiles="CartoDB positron")
 
-            if st.session_state.map_center_type == 'stations' and not selected_stations_df.empty and 'geometry' in selected_stations_df.columns:
-                bounds = [[selected_stations_df.total_bounds[1], selected_stations_df.total_bounds[0]],
-                          [selected_stations_df.total_bounds[3], selected_stations_df.total_bounds[2]]]
-                m.fit_bounds(bounds)
-            
-            if not selected_stations_df.empty and 'geometry' in selected_stations_df.columns:
+            if 'geometry' in selected_stations_df.columns and not selected_stations_df.geometry.is_empty.all():
+                if st.session_state.map_center_type == 'stations' and not selected_stations_df.empty:
+                    bounds = [[selected_stations_df.total_bounds[1], selected_stations_df.total_bounds[0]],
+                              [selected_stations_df.total_bounds[3], selected_stations_df.total_bounds[2]]]
+                    m.fit_bounds(bounds)
                 
                 # Crear la capa de polígonos del shapefile
                 folium.GeoJson(
@@ -362,25 +363,25 @@ if data_df is not None and not data_df.empty:
                                                             style=("background-color: white; color: #333333; font-family: sans-serif; font-size: 12px; padding: 10px;"))
                 ).add_to(m)
 
-                # Agregar marcadores para cada estación
-                for idx, row in selected_stations_df.iterrows():
-                    if pd.notna(row['Latitud']) and pd.notna(row['Longitud']):
-                        pop_up_text = (
-                            f"<b>Estación:</b> {row.get('Nom_Est', 'N/A')}<br>"
-                            f"<b>Municipio:</b> {row.get('municipio', 'N/A')}<br>"
-                            f"<b>Vereda:</b> {row.get('vereda', 'N/A')}"
-                        )
-                        tooltip_text = f"Estación: {row.get('Nom_Est', 'N/A')}"
-                        folium.CircleMarker(
-                            location=[row['Latitud'], row['Longitud']],
-                            radius=6,
-                            popup=pop_up_text,
-                            tooltip=tooltip_text,
-                            color='blue',
-                            fill=True,
-                            fill_color='blue',
-                            fill_opacity=0.6
-                        ).add_to(m)
+            # Agregar marcadores para cada estación
+            for idx, row in selected_stations_df.iterrows():
+                if pd.notna(row['Latitud']) and pd.notna(row['Longitud']):
+                    pop_up_text = (
+                        f"<b>Estación:</b> {row.get('Nom_Est', 'N/A')}<br>"
+                        f"<b>Municipio:</b> {row.get('municipio', 'N/A')}<br>"
+                        f"<b>Vereda:</b> {row.get('vereda', 'N/A')}"
+                    )
+                    tooltip_text = f"Estación: {row.get('Nom_Est', 'N/A')}"
+                    folium.CircleMarker(
+                        location=[row['Latitud'], row['Longitud']],
+                        radius=6,
+                        popup=pop_up_text,
+                        tooltip=tooltip_text,
+                        color='blue',
+                        fill=True,
+                        fill_color='blue',
+                        fill_opacity=0.6
+                    ).add_to(m)
             folium_static(m)
 
     # --- Pestaña 4: Animaciones ---
