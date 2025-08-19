@@ -484,11 +484,18 @@ if df is not None and not df.empty:
                 # Añadir los marcadores circulares para las estaciones
                 for idx, row in gdf_final.iterrows():
                     if pd.notna(row['Latitud']) and pd.notna(row['Longitud']):
+                        # Verificar si 'Precipitación Media (mm)' existe y es un número antes de formatear
+                        precip_media = row.get('Precipitación Media (mm)', 'N/A')
+                        if isinstance(precip_media, (int, float)):
+                            precip_str = f"{precip_media:.2f}"
+                        else:
+                            precip_str = str(precip_media)
+
                         pop_up_text = (
                             f"<b>Estación:</b> {row['Nom_Est']}<br>"
                             f"<b>Municipio:</b> {row.get('municipio', 'N/A')}<br>"
                             f"<b>Vereda:</b> {row.get('vereda', 'N/A')}<br>"
-                            f"<b>Precipitación Media:</b> {row.get('Precipitación Media (mm)', 'N/A'):.2f} mm"
+                            f"<b>Precipitación Media:</b> {precip_str} mm"
                         )
                         tooltip_text = f"Estación: {row['Nom_Est']}"
 
