@@ -18,7 +18,7 @@ st.markdown("---")
 
 # --- Sección para la carga de datos en la barra lateral ---
 st.sidebar.header("⚙️ Cargar Datos y Opciones de Filtrado")
-with st.sidebar.expander("📂 Cargar Datos"):
+with st.sidebar.expander("� Cargar Datos"):
     st.write("Carga tu archivo `mapaCV.csv` y los archivos del shapefile (`.shp`, `.shx`, `.dbf`) comprimidos en un único archivo `.zip`.")
     
     # Carga de archivos CSV
@@ -68,58 +68,57 @@ with st.sidebar.expander("📂 Cargar Datos"):
 
 # --- Proceso de unión y preparación de datos ---
 df = None
+
+# Función robusta para encontrar la columna clave
+def find_column(dataframe, possible_names):
+    """Busca y retorna el nombre de una columna que coincida con una lista de posibles nombres,
+    ignorando mayúsculas y minúsculas."""
+    df_columns_lower = [col.lower() for col in dataframe.columns]
+    for name in possible_names:
+        if name.lower() in df_columns_lower:
+            # Retorna el nombre original de la columna
+            return dataframe.columns[df_columns_lower.index(name.lower())]
+    return None
+
 if df_csv is not None and gdf is not None:
     try:
-        # Renombrar columnas para una unión consistente y evitar duplicados
-        # Mapeo de posibles nombres de columnas a nombres estandarizados
-        col_mapping = {
-            'Nom_Est': ['Nom_Est', 'nom_est', 'nombr_est', 'estacion'],
-            'municipio': ['municipio', 'NOMB_MPIO', 'nom_mpio', 'Mpio', 'Mpio.'],
-            'vereda': ['vereda', 'NOMBRE_VER', 'nombre_ver'],
-            'celda': ['celda', 'Celda_XY', 'celda_xy']
-        }
+        # Definir las posibles columnas clave para la unión
+        station_cols_gdf = ['Nom_Est', 'nom_est', 'NOMBRE_VER', 'nombre_ver']
+        station_cols_csv = ['Nom_Est', 'nom_est', 'estacion', 'nombre', 'nombre_ver', 'estacion_id']
+        
+        # Encontrar los nombres de columna reales en ambos DataFrames
+        station_col_gdf = find_column(gdf, station_cols_gdf)
+        station_col_csv = find_column(df_csv, station_cols_csv)
+        
+        if not station_col_gdf or not station_col_csv:
+            st.error("Error: No se encontró una columna de 'estación' común en ambos archivos para realizar la unión. Por favor, asegúrate de que ambos archivos tengan una columna para el nombre o ID de la estación (ej. 'Nom_Est', 'estacion', 'nombre_ver').")
+            df = None
+        else:
+            # Unir el GeoDataFrame con el DataFrame del CSV
+            # Utilizamos los nombres de columna dinámicamente encontrados
+            df = gdf.merge(df_csv, left_on=station_col_gdf, right_on=station_col_csv, how='left')
 
-        # Función para renombrar columnas de manera segura
-        def rename_and_drop_duplicates(dataframe, col_mapping):
-            df_cols = [c.lower() for c in dataframe.columns]
-            dataframe.columns = df_cols
+            # Normalizar el nombre de la columna unida para que el resto del código funcione
+            if station_col_gdf != 'Nom_Est':
+                df.rename(columns={station_col_gdf: 'Nom_Est'}, inplace=True)
             
-            new_df = dataframe.copy()
-            for std_name, possible_names in col_mapping.items():
-                found_col = None
-                for name in possible_names:
-                    if name in new_df.columns:
-                        found_col = name
-                        break
-                if found_col:
-                    if found_col != std_name:
-                        new_df.rename(columns={found_col: std_name}, inplace=True)
-                    # Eliminar las otras columnas duplicadas que no se usaron
-                    cols_to_drop = [n for n in possible_names if n in new_df.columns and n != found_col]
-                    new_df.drop(columns=cols_to_drop, inplace=True, errors='ignore')
-            return new_df
+            # Eliminar la columna duplicada del CSV, si existe y no es la misma que la del shapefile
+            if station_col_csv in df.columns and station_col_csv != 'Nom_Est':
+                df.drop(columns=[station_col_csv], inplace=True, errors='ignore')
 
-        # Aplicar el renombramiento a ambos DataFrames
-        df_csv = rename_and_drop_duplicates(df_csv, col_mapping)
-        gdf = rename_and_drop_duplicates(gdf, col_mapping)
-        
-        # Unir el GeoDataFrame con el DataFrame del CSV
-        # Usamos un left merge para mantener todas las geometrías del mapa
-        df = gdf.merge(df_csv, on='Nom_Est', how='left')
+            # Preparar las coordenadas del centroide
+            df['Latitud'] = df.geometry.centroid.y
+            df['Longitud'] = df.geometry.centroid.x
+            
+            # Convertir las columnas a tipo numérico, manejando errores de 'nan'
+            df['Latitud'] = pd.to_numeric(df['Latitud'], errors='coerce')
+            df['Longitud'] = pd.to_numeric(df['Longitud'], errors='coerce')
+            
+            # Eliminar filas con valores NaN en latitud/longitud
+            df.dropna(subset=['Latitud', 'Longitud'], inplace=True)
 
-        # Usar el centroide del polígono como las coordenadas
-        df['Latitud'] = df.geometry.centroid.y
-        df['Longitud'] = df.geometry.centroid.x
-        
-        # Convertir las columnas a tipo numérico, manejando errores de 'nan'
-        df['Latitud'] = pd.to_numeric(df['Latitud'], errors='coerce')
-        df['Longitud'] = pd.to_numeric(df['Longitud'], errors='coerce')
-        
-        # Eliminar filas con valores NaN en latitud/longitud
-        df.dropna(subset=['Latitud', 'Longitud'], inplace=True)
-
-        if df.empty:
-            st.error("El DataFrame está vacío después de la unión. Asegúrate de que la columna de la estación ('Nom_Est') sea la misma en ambos archivos y contenga datos válidos.")
+            if df.empty:
+                st.error("El DataFrame está vacío después de la unión. Asegúrate de que la columna de la estación sea la misma en ambos archivos y contenga datos válidos.")
     except Exception as e:
         st.error(f"Error en el proceso de unión de datos: {e}")
         df = None
@@ -138,17 +137,17 @@ if df is not None and not df.empty:
     st.sidebar.subheader("Filtros de Datos")
     
     # Selectores por municipio y celda, ahora multiseleccionables
-    municipios = sorted(df['municipio'].dropna().unique())
+    municipios = sorted(df['municipio'].dropna().unique()) if 'municipio' in df.columns else []
     selected_municipio = st.sidebar.multiselect("Elige uno o más municipios:", municipios)
     
-    celdas = sorted(df['celda'].dropna().unique())
+    celdas = sorted(df['celda'].dropna().unique()) if 'celda' in df.columns else []
     selected_celda = st.sidebar.multiselect("Elige una o más celdas:", celdas)
 
     # Filtrar el DataFrame según la selección de municipio y celda
     filtered_df_by_loc = df.copy()
-    if selected_municipio:
+    if selected_municipio and 'municipio' in filtered_df_by_loc.columns:
         filtered_df_by_loc = filtered_df_by_loc[filtered_df_by_loc['municipio'].isin(selected_municipio)]
-    if selected_celda:
+    if selected_celda and 'celda' in filtered_df_by_loc.columns:
         filtered_df_by_loc = filtered_df_by_loc[filtered_df_by_loc['celda'].isin(selected_celda)]
     
     # Selección de estaciones, ordenadas alfabéticamente
