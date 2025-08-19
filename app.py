@@ -16,137 +16,113 @@ st.set_page_config(layout="wide")
 st.title('☔ Visor de Información Geoespacial de Precipitación 🌧️')
 st.markdown("---")
 
-# --- Sección para la carga de datos en la barra lateral ---
-st.sidebar.header("⚙️ Cargar Datos y Opciones de Filtrado")
-with st.sidebar.expander("📂 Cargar Datos"):
-    st.write("Carga tu archivo `mapaCV.csv` y los archivos del shapefile (`.shp`, `.shx`, `.dbf`) comprimidos en un único archivo `.zip`.")
-    
-    # Carga de archivos CSV
-    uploaded_file_csv = st.file_uploader("Cargar archivo .csv (mapaCV.csv)", type="csv", key="csv_uploader")
-    df_csv = None
-    if uploaded_file_csv:
-        try:
-            # Usar 'utf-8' por defecto, pero manejar el error con 'latin-1' si falla
-            df_csv = pd.read_csv(uploaded_file_csv, sep=';', encoding='utf-8')
-            st.success("Archivo CSV cargado exitosamente.")
-        except UnicodeDecodeError:
-            try:
-                df_csv = pd.read_csv(uploaded_file_csv, sep=';', encoding='latin-1')
-                st.success("Archivo CSV cargado exitosamente (con codificación latin-1).")
-            except Exception as e:
-                st.error(f"Error al leer el archivo CSV: {e}")
-                df_csv = None
-        except Exception as e:
-            st.error(f"Error al leer el archivo CSV: {e}")
-            df_csv = None
+# --- Sección de carga de datos ---
+st.header("📂 Cargar Datos")
+st.write("Carga tu archivo `.csv` y los archivos del shapefile (`.shp`, `.shx`, `.dbf`) comprimidos en un único archivo `.zip`.")
 
-    # Carga de archivo Shapefile en formato ZIP
-    uploaded_zip = st.file_uploader("Cargar shapefile (.zip)", type="zip", key="zip_uploader")
-    gdf = None
-    if uploaded_zip:
-        try:
-            with tempfile.TemporaryDirectory() as temp_dir:
-                with zipfile.ZipFile(uploaded_zip, 'r') as zip_ref:
-                    zip_ref.extractall(temp_dir)
-                
-                shp_files = [f for f in os.listdir(temp_dir) if f.endswith('.shp')]
-                if shp_files:
-                    shp_path = os.path.join(temp_dir, shp_files[0])
-                    gdf = gpd.read_file(shp_path)
-                    
-                    # Asignar el CRS correcto y convertir a WGS84
-                    # MAGNA-SIRGAS_CMT12 corresponde a EPSG:9377
-                    gdf.set_crs("EPSG:9377", inplace=True)
-                    gdf = gdf.to_crs("EPSG:4326")
-                    
-                    st.success("Archivos Shapefile cargados exitosamente.")
-                else:
-                    st.error("No se encontró ningún archivo .shp en el archivo ZIP. Asegúrate de que el archivo .zip contenga al menos un .shp.")
-                    gdf = None
-        except Exception as e:
-            st.error(f"Error al procesar el archivo ZIP: {e}")
+uploaded_file_csv = st.file_uploader("Cargar archivo .csv (mapaCV.csv)", type="csv")
+uploaded_zip = st.file_uploader("Cargar shapefile (.zip)", type="zip")
 
-# --- Proceso de unión y preparación de datos ---
+df_csv = None
+gdf = None
 df = None
 
-# Función robusta para encontrar y estandarizar nombres de columna
-def standardize_columns(dataframe, col_mapping):
-    """
-    Busca columnas en un DataFrame según un mapeo de posibles nombres y las renombra a un nombre estándar.
-    Retorna el DataFrame modificado y un diccionario de los nombres de columna encontrados.
-    """
-    df_cols = [c.lower() for c in dataframe.columns]
-    found_cols = {}
-    
-    for std_name, possible_names in col_mapping.items():
-        found_col_name = None
-        for name in possible_names:
-            if name.lower() in df_cols:
-                # Encuentra el nombre original de la columna
-                found_col_name = dataframe.columns[df_cols.index(name.lower())]
-                break
-        if found_col_name:
-            found_cols[std_name] = found_col_name
-            if found_col_name != std_name:
-                dataframe.rename(columns={found_col_name: std_name}, inplace=True)
-    
-    return dataframe, found_cols
-
-if df_csv is not None and gdf is not None:
+# --- Proceso de unión y preparación de datos ---
+if uploaded_file_csv and uploaded_zip:
     try:
-        # Mapeo de columnas para estandarización
-        col_mapping_gdf = {
-            'Nom_Est': ['Nom_Est', 'nom_est', 'NOMBRE_VER', 'nombre_ver'],
-            'municipio': ['NOMB_MPIO', 'nombre_ver', 'Mpio'],
-            'vereda': ['NOMBRE_VER', 'nombre_ver', 'vereda'],
-            'celda': ['Celda_XY', 'celda']
-        }
-        col_mapping_csv = {
-            'Nom_Est': ['Nom_Est', 'nom_est', 'estacion', 'nombre', 'nombre_ver'],
-            'municipio': ['municipio', 'NOMB_MPIO', 'Mpio'],
-            'vereda': ['vereda', 'NOMBRE_VER', 'nombre_ver'],
-            'celda': ['Celda_XY', 'celda']
-        }
-        
-        # Estandarizar columnas en ambos DataFrames
-        gdf, found_cols_gdf = standardize_columns(gdf, col_mapping_gdf)
-        df_csv, found_cols_csv = standardize_columns(df_csv, col_mapping_csv)
-        
-        # Verificar que la columna clave de unión exista en ambos
-        station_col_gdf = found_cols_gdf.get('Nom_Est')
-        station_col_csv = found_cols_csv.get('Nom_Est')
+        # Carga del archivo CSV
+        try:
+            df_csv = pd.read_csv(uploaded_file_csv, sep=';', encoding='utf-8')
+        except UnicodeDecodeError:
+            df_csv = pd.read_csv(uploaded_file_csv, sep=';', encoding='latin-1')
 
-        if not station_col_gdf or not station_col_csv:
-            st.error("Error: No se encontró una columna de 'estación' común en ambos archivos para realizar la unión. Por favor, asegúrate de que ambos archivos tengan una columna para el nombre o ID de la estación (ej. 'Nom_Est', 'estacion', 'nombre_ver').")
-            df = None
-        else:
-            # Unir el GeoDataFrame con el DataFrame del CSV
-            # Usamos un left merge para mantener todas las geometrías del mapa
-            df = gdf.merge(df_csv, on='Nom_Est', how='left', suffixes=('_gdf', '_csv'))
+        st.success("Archivo CSV cargado exitosamente.")
 
-            # Asegurarse de que las columnas estandarizadas de ubicación existan después del merge
-            # Si existían en un archivo, pero no en el otro, el merge las mantiene
-            # Creamos columnas vacías si no se encontraron en ninguno para evitar KeyError
-            for col in ['municipio', 'vereda', 'celda']:
-                if col not in df.columns:
-                    df[col] = pd.NA
+        # Carga del archivo Shapefile en formato ZIP
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with zipfile.ZipFile(uploaded_zip, 'r') as zip_ref:
+                zip_ref.extractall(temp_dir)
             
-            # Preparar las coordenadas del centroide
-            df['Latitud'] = df.geometry.centroid.y
-            df['Longitud'] = df.geometry.centroid.x
-            
-            # Convertir las columnas a tipo numérico, manejando errores de 'nan'
-            df['Latitud'] = pd.to_numeric(df['Latitud'], errors='coerce')
-            df['Longitud'] = pd.to_numeric(df['Longitud'], errors='coerce')
-            
-            # Eliminar filas con valores NaN en latitud/longitud
-            df.dropna(subset=['Latitud', 'Longitud'], inplace=True)
-
-            if df.empty:
-                st.error("El DataFrame está vacío después de la unión. Asegúrate de que la columna de la estación sea la misma en ambos archivos y contenga datos válidos.")
+            shp_files = [f for f in os.listdir(temp_dir) if f.endswith('.shp')]
+            if shp_files:
+                shp_path = os.path.join(temp_dir, shp_files[0])
+                gdf = gpd.read_file(shp_path)
+                
+                # Asignar el CRS correcto y convertir a WGS84
+                # MAGNA-SIRGAS_CMT12 corresponde a EPSG:9377
+                gdf.set_crs("EPSG:9377", inplace=True)
+                gdf = gdf.to_crs("EPSG:4326")
+                
+                st.success("Archivos Shapefile cargados exitosamente.")
+            else:
+                st.error("No se encontró ningún archivo .shp en el archivo ZIP. Asegúrate de que el archivo .zip contenga al menos un .shp.")
+                gdf = None
     except Exception as e:
-        st.error(f"Error en el proceso de unión de datos: {e}")
-        df = None
+        st.error(f"Error al procesar los archivos: {e}")
+
+    # Función robusta para encontrar y estandarizar nombres de columna
+    def standardize_columns(dataframe, col_mapping):
+        df_cols = [c.lower() for c in dataframe.columns]
+        found_cols = {}
+        for std_name, possible_names in col_mapping.items():
+            found_col_name = None
+            for name in possible_names:
+                if name.lower() in df_cols:
+                    found_col_name = dataframe.columns[df_cols.index(name.lower())]
+                    break
+            if found_col_name:
+                found_cols[std_name] = found_col_name
+                if found_col_name != std_name:
+                    dataframe.rename(columns={found_col_name: std_name}, inplace=True)
+        return dataframe, found_cols
+
+    if df_csv is not None and gdf is not None:
+        try:
+            # Mapeo de columnas para estandarización
+            col_mapping_gdf = {
+                'Nom_Est': ['Nom_Est', 'nom_est', 'NOMBRE_VER', 'nombre_ver'],
+                'municipio': ['NOMB_MPIO', 'nombre_ver', 'Mpio'],
+                'vereda': ['NOMBRE_VER', 'nombre_ver', 'vereda'],
+                'celda': ['Celda_XY', 'celda']
+            }
+            col_mapping_csv = {
+                'Nom_Est': ['Nom_Est', 'nom_est', 'estacion', 'nombre', 'nombre_ver'],
+                'municipio': ['municipio', 'NOMB_MPIO', 'Mpio'],
+                'vereda': ['vereda', 'NOMBRE_VER', 'nombre_ver'],
+                'celda': ['Celda_XY', 'celda']
+            }
+            
+            # Estandarizar columnas en ambos DataFrames
+            gdf, found_cols_gdf = standardize_columns(gdf, col_mapping_gdf)
+            df_csv, found_cols_csv = standardize_columns(df_csv, col_mapping_csv)
+            
+            # Verificar que la columna clave de unión exista en ambos
+            station_col_gdf = found_cols_gdf.get('Nom_Est')
+            station_col_csv = found_cols_csv.get('Nom_Est')
+
+            if not station_col_gdf or not station_col_csv:
+                st.error("Error: No se encontró una columna de 'estación' común en ambos archivos para realizar la unión. Por favor, asegúrate de que ambos archivos tengan una columna para el nombre o ID de la estación (ej. 'Nom_Est', 'estacion', 'nombre_ver').")
+                df = None
+            else:
+                # Unir el GeoDataFrame con el DataFrame del CSV
+                df = gdf.merge(df_csv, on='Nom_Est', how='left', suffixes=('_gdf', '_csv'))
+
+                for col in ['municipio', 'vereda', 'celda']:
+                    if col not in df.columns:
+                        df[col] = pd.NA
+                
+                # Preparar las coordenadas del centroide
+                df['Latitud'] = df.geometry.centroid.y
+                df['Longitud'] = df.geometry.centroid.x
+                
+                # Convertir las columnas a tipo numérico, manejando errores de 'nan'
+                df['Latitud'] = pd.to_numeric(df['Latitud'], errors='coerce')
+                df['Longitud'] = pd.to_numeric(df['Longitud'], errors='coerce')
+                
+                df.dropna(subset=['Latitud', 'Longitud'], inplace=True)
+        except Exception as e:
+            st.error(f"Error en el proceso de unión de datos: {e}")
+            df = None
 
 # --- Resto de la aplicación, solo se ejecuta si el DataFrame no es nulo ---
 if df is not None and not df.empty:
@@ -159,7 +135,7 @@ if df is not None and not df.empty:
     ])
     
     # --- Filtros en la barra lateral ---
-    st.sidebar.subheader("Filtros de Datos")
+    st.sidebar.header("⚙️ Opciones de Filtrado")
     
     # Selectores por municipio y celda, ahora multiseleccionables
     municipios = sorted(df['municipio'].dropna().unique()) if 'municipio' in df.columns else []
@@ -207,8 +183,6 @@ if df is not None and not df.empty:
     )
     
     years_to_analyze = [str(year) for year in range(start_year, end_year + 1)]
-    
-    # Asegura que las columnas de años existan en el DataFrame antes de usarlas
     years_to_analyze_present = [year for year in years_to_analyze if year in selected_stations_df.columns]
     
     # --- Pestaña para datos tabulados ---
@@ -221,14 +195,10 @@ if df is not None and not df.empty:
         else:
             st.subheader("Información básica de las Estaciones Seleccionadas")
             
-            # Columnas adicionales del CSV
             info_cols = ['Nom_Est', 'estacion', 'municipio', 'vereda', 'celda']
-            
-            # Filtra las columnas a mostrar
             cols_to_display = [col for col in info_cols + years_to_analyze_present if col in df.columns]
             df_to_display = selected_stations_df[cols_to_display].set_index('Nom_Est')
 
-            # Aplicar escala de colores a los datos de precipitación
             if not df_to_display.empty and years_to_analyze_present:
                 try:
                     styled_df = df_to_display.style.background_gradient(cmap='RdYlBu_r', subset=years_to_analyze_present)
@@ -239,10 +209,8 @@ if df is not None and not df.empty:
             else:
                 st.dataframe(df_to_display)
 
-            # Nueva tabla con estadísticas
             st.subheader("Estadísticas de Precipitación")
             
-            # Prepara el DataFrame para estadísticas, asegurándose de que las columnas existan
             stats_cols = ['Nom_Est']
             if 'municipio' in selected_stations_df.columns:
                 stats_cols.append('municipio')
@@ -251,7 +219,6 @@ if df is not None and not df.empty:
             stats_df = selected_stations_df[stats_cols].copy()
             
             if years_to_analyze_present and not selected_stations_df.empty:
-                # Calcular max, min, mean, std
                 stats_df['Precipitación Máxima (mm)'] = selected_stations_df[years_to_analyze_present].max(axis=1).round(2)
                 stats_df['Año Máximo'] = selected_stations_df[years_to_analyze_present].idxmax(axis=1)
                 stats_df['Precipitación Mínima (mm)'] = selected_stations_df[years_to_analyze_present].min(axis=1).round(2)
@@ -259,7 +226,6 @@ if df is not None and not df.empty:
                 stats_df['Precipitación Media (mm)'] = selected_stations_df[years_to_analyze_present].mean(axis=1).round(2)
                 stats_df['Desviación Estándar'] = selected_stations_df[years_to_analyze_present].std(axis=1).round(2)
 
-                # Agregar una fila de resumen para todas las estaciones
                 df_melted_stats = selected_stations_df.melt(
                     id_vars=['Nom_Est'],
                     value_vars=years_to_analyze_present,
@@ -306,7 +272,6 @@ if df is not None and not df.empty:
         elif not years_to_analyze_present:
             st.info("El rango de años seleccionado no contiene datos de precipitación para las estaciones seleccionadas. Por favor, ajusta el rango de años.")
         else:
-            # Controles para el eje vertical
             st.subheader("Opciones de Eje Vertical (Y)")
             axis_control = st.radio("Elige el control del eje Y:", ('Automático', 'Personalizado'))
             y_range = None
@@ -341,7 +306,6 @@ if df is not None and not df.empty:
             )
             df_melted['Año'] = df_melted['Año'].astype(int)
 
-            # Aplicar el rango del eje Y si es personalizado
             y_scale = alt.Scale(domain=y_range) if y_range else alt.Scale()
 
             if chart_type == 'Líneas':
@@ -377,7 +341,6 @@ if df is not None and not df.empty:
             else:
                 df_compare = df_compare.sort_values(by='Precipitación', ascending=True)
 
-            # Aplicar el rango del eje Y al gráfico de barras de Plotly
             fig_bar = px.bar(
                 df_compare,
                 x='Nom_Est',
@@ -400,7 +363,6 @@ if df is not None and not df.empty:
         else:
             st.write("El mapa se ajusta automáticamente para mostrar todas las estaciones seleccionadas. Puedes usar los botones de abajo para centrar la vista.")
 
-            # Botones para centrar el mapa
             col_map1, col_map2, col_map3 = st.columns(3)
             with col_map1:
                 if st.button("Centrar en Colombia"):
@@ -413,14 +375,12 @@ if df is not None and not df.empty:
                     st.session_state.reset_map_colombia = False
                     st.session_state.center_on_stations = False
             with col_map3:
-                # Nuevo botón para centrar en las estaciones seleccionadas
                 if st.button("Centrar en Estaciones Seleccionadas"):
                     st.session_state.center_on_stations = True
                     st.session_state.reset_map_colombia = False
                     st.session_state.reset_map_antioquia = False
 
-            # Crear el mapa de Folium
-            map_center = [4.5709, -74.2973] # Centro de Colombia por defecto
+            map_center = [4.5709, -74.2973]
             zoom_level = 6
 
             if 'reset_map_colombia' in st.session_state and st.session_state.reset_map_colombia:
@@ -443,7 +403,6 @@ if df is not None and not df.empty:
 
             m = folium.Map(location=map_center, zoom_start=zoom_level, tiles="CartoDB positron")
 
-            # Ajustar el encuadre del mapa a las estaciones seleccionadas
             gdf_selected_for_bounds = df[df['Nom_Est'].isin(selected_stations_list)]
             if not gdf_selected_for_bounds.empty:
                 bounds = [[gdf_selected_for_bounds.total_bounds[1], gdf_selected_for_bounds.total_bounds[0]], 
@@ -458,18 +417,15 @@ if df is not None and not df.empty:
                 if 'vereda' in gdf_final.columns:
                     stats_df_cols.append('vereda')
                 
-                # Crear un DataFrame de estadísticas para la visualización del mapa
                 stats_df = selected_stations_df[stats_df_cols].copy()
                 if years_to_analyze_present:
                     stats_df['Precipitación Media (mm)'] = selected_stations_df[years_to_analyze_present].mean(axis=1).round(2)
                 
                 gdf_final = gdf_final.merge(stats_df, on='Nom_Est', how='left', suffixes=('', '_stat'))
                 
-                # Añadir las áreas (polígonos) del shapefile al mapa
                 tooltip_fields = ['Nom_Est', 'municipio', 'vereda', 'Precipitación Media (mm)']
                 tooltip_aliases = ['Estación', 'Municipio', 'Vereda', 'Precipitación Media']
                 
-                # Ajustar el tooltip para que solo muestre las columnas que existen
                 existing_fields = [f for f in tooltip_fields if f in gdf_final.columns]
                 existing_aliases = [tooltip_aliases[i] for i, f in enumerate(tooltip_fields) if f in gdf_final.columns]
                 
@@ -481,10 +437,8 @@ if df is not None and not df.empty:
                                                             style=("background-color: white; color: #333333; font-family: sans-serif; font-size: 12px; padding: 10px;"))
                 ).add_to(m)
 
-                # Añadir los marcadores circulares para las estaciones
                 for idx, row in gdf_final.iterrows():
                     if pd.notna(row['Latitud']) and pd.notna(row['Longitud']):
-                        # Verificar si 'Precipitación Media (mm)' existe y es un número antes de formatear
                         precip_media = row.get('Precipitación Media (mm)', 'N/A')
                         if isinstance(precip_media, (int, float)):
                             precip_str = f"{precip_media:.2f}"
@@ -536,7 +490,6 @@ if df is not None and not df.empty:
                     )
                     df_melted_anim['Año'] = df_melted_anim['Año'].astype(str)
 
-                    # Aplicar el rango del eje Y si es personalizado a la animación de barras
                     fig = px.bar(
                         df_melted_anim,
                         x='Nom_Est',
@@ -559,7 +512,6 @@ if df is not None and not df.empty:
                         value_name='Precipitación'
                     )
                     
-                    # Aplicar el rango de color del eje Y si es personalizado a la animación del mapa
                     fig = px.scatter_mapbox(
                         df_melted_map,
                         lat="Latitud",
