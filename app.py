@@ -4,7 +4,6 @@ import altair as alt
 import folium
 from streamlit_folium import folium_static
 import plotly.express as px
-import plotly.graph_objects as go
 import geopandas as gpd
 import zipfile
 import tempfile
@@ -18,28 +17,35 @@ st.markdown("---")
 
 # --- Funciones de Carga y Caching ---
 @st.cache_data
-def load_csv_data(uploaded_file_csv):
+def load_all_data(uploaded_file_csv, uploaded_zip):
     """
-    Carga y procesa el archivo CSV.
-    Retorna el DataFrame o None en caso de error.
+    Carga, procesa y une los datos del CSV y del shapefile.
+    Retorna el GeoDataFrame unido o None en caso de error.
     """
+    df = None
+    gdf = None
+    
+    # Cargar CSV
     if uploaded_file_csv:
         try:
             df = pd.read_csv(uploaded_file_csv, sep=';')
             df = df.rename(columns={'Mpio': 'municipio', 'NOMBRE_VER': 'vereda'})
+            required_csv_cols = ['Nom_Est', 'Latitud', 'Longitud', 'municipio', 'vereda']
+            if not all(col in df.columns for col in required_csv_cols):
+                st.error(f"Error: El archivo CSV no contiene todas las columnas requeridas: {', '.join(required_csv_cols)}")
+                return None
+            df['Latitud'] = pd.to_numeric(df['Latitud'], errors='coerce')
+            df['Longitud'] = pd.to_numeric(df['Longitud'], errors='coerce')
+            df.dropna(subset=['Latitud', 'Longitud'], inplace=True)
+            if df.empty:
+                st.error("El DataFrame está vacío. Por favor, asegúrate de que tu archivo CSV contenga datos válidos en las columnas 'Nom_Est', 'Latitud' y 'Longitud'.")
+                return None
             st.success("Archivo CSV cargado exitosamente.")
-            return df
         except Exception as e:
             st.error(f"Error al leer el archivo CSV: {e}")
             return None
-    return None
-
-@st.cache_data
-def load_shapefile(uploaded_zip):
-    """
-    Extrae y carga el shapefile de un archivo ZIP.
-    Retorna el GeoDataFrame o None en caso de error.
-    """
+    
+    # Cargar Shapefile
     if uploaded_zip:
         try:
             with tempfile.TemporaryDirectory() as temp_dir:
@@ -51,15 +57,28 @@ def load_shapefile(uploaded_zip):
                     gdf = gpd.read_file(shp_path)
                     gdf.set_crs("EPSG:9377", inplace=True)
                     gdf = gdf.to_crs("EPSG:4326")
+                    if 'Nom_Est' not in gdf.columns:
+                        st.error("Error: El shapefile no contiene la columna requerida 'Nom_Est'.")
+                        return None
                     st.success("Archivos Shapefile cargados exitosamente.")
-                    return gdf
                 else:
                     st.error("No se encontró ningún archivo .shp en el archivo ZIP. Asegúrate de que el archivo .zip contenga al menos un .shp.")
                     return None
         except Exception as e:
             st.error(f"Error al procesar el archivo ZIP: {e}")
             return None
-    return None
+    
+    # Unir los datos
+    if df is not None and gdf is not None:
+        merged_gdf = gdf.merge(df, on='Nom_Est', how='left')
+        st.success("Datos de CSV y Shapefile unidos exitosamente.")
+        return merged_gdf
+    elif df is not None:
+        return df
+    elif gdf is not None:
+        return gdf
+    else:
+        return None
 
 # --- Sección de Carga de Datos ---
 with st.expander("📂 Cargar Datos"):
@@ -67,43 +86,28 @@ with st.expander("📂 Cargar Datos"):
     uploaded_file_csv = st.file_uploader("Cargar archivo .csv (mapaCV.csv)", type="csv")
     uploaded_zip = st.file_uploader("Cargar shapefile (.zip)", type="zip")
 
-df = load_csv_data(uploaded_file_csv)
-gdf = load_shapefile(uploaded_zip)
+data_df = load_all_data(uploaded_file_csv, uploaded_zip)
 
-if df is not None:
-    required_cols = ['Nom_Est', 'Latitud', 'Longitud', 'municipio', 'Celda_XY', 'vereda', 'Id_estacion', 'departamento']
-    missing_cols = [col for col in required_cols if col not in df.columns]
-    if missing_cols:
-        st.error(f"Error: Las siguientes columnas requeridas no se encuentran en el archivo CSV: {', '.join(missing_cols)}. Por favor, verifica los nombres de las columnas en tu archivo.")
-        df = None
-    else:
-        df['Latitud'] = pd.to_numeric(df['Latitud'], errors='coerce')
-        df['Longitud'] = pd.to_numeric(df['Longitud'], errors='coerce')
-        df.dropna(subset=['Latitud', 'Longitud'], inplace=True)
-        if df.empty:
-            st.error("El DataFrame está vacío. Por favor, asegúrate de que tu archivo CSV contenga datos válidos en las columnas 'Nom_Est', 'Latitud' y 'Longitud'.")
-            df = None
-
-if df is not None:
+if data_df is not None and not data_df.empty:
     # --- Sidebar de Filtrado (Sección 1: Opciones) ---
     st.sidebar.header("⚙️ Opciones de Filtrado")
     st.sidebar.markdown("---")
 
     # Selectores por municipio y celda
-    municipios = sorted(df['municipio'].unique())
+    municipios = sorted(data_df['municipio'].dropna().unique())
     selected_municipio = st.sidebar.multiselect("Elige uno o más municipios:", municipios)
 
-    filtered_df_by_loc = df.copy()
+    filtered_df_by_loc = data_df.copy()
     if selected_municipio:
         filtered_df_by_loc = filtered_df_by_loc[filtered_df_by_loc['municipio'].isin(selected_municipio)]
     
-    celdas_by_municipio = sorted(filtered_df_by_loc['Celda_XY'].unique())
+    celdas_by_municipio = sorted(filtered_df_by_loc['Celda_XY'].dropna().unique())
     selected_celda = st.sidebar.multiselect("Elige una o más celdas:", celdas_by_municipio)
 
     if selected_celda:
         filtered_df_by_loc = filtered_df_by_loc[filtered_df_by_loc['Celda_XY'].isin(selected_celda)]
 
-    all_stations = sorted(filtered_df_by_loc['Nom_Est'].unique())
+    all_stations = sorted(filtered_df_by_loc['Nom_Est'].dropna().unique())
 
     # Controles de selección de estaciones
     with st.sidebar.expander("Seleccionar Estaciones"):
@@ -125,13 +129,14 @@ if df is not None:
         )
         st.session_state.selected_stations = selected_stations_list
 
-    selected_stations_df = df[df['Nom_Est'].isin(selected_stations_list)]
+    selected_stations_df = data_df[data_df['Nom_Est'].isin(selected_stations_list)]
 
+    years_present = [col for col in data_df.columns if str(col).isdigit()]
     start_year, end_year = st.sidebar.slider(
         "Elige el rango de años:",
-        min_value=1970,
-        max_value=2021,
-        value=(1970, 2021)
+        min_value=int(min(years_present)) if years_present else 1970,
+        max_value=int(max(years_present)) if years_present else 2021,
+        value=(int(min(years_present)) if years_present else 1970, int(max(years_present)) if years_present else 2021)
     )
     years_to_analyze = [str(year) for year in range(start_year, end_year + 1)]
     years_to_analyze_present = [year for year in years_to_analyze if year in selected_stations_df.columns]
@@ -152,8 +157,8 @@ if df is not None:
             st.info("Por favor, selecciona al menos una estación en la barra lateral.")
         else:
             st.subheader("Información básica de las Estaciones Seleccionadas")
-            info_cols = ['Nom_Est', 'Id_estacion', 'porc_datos', 'departamento', 'municipio', 'vereda', 'Celda_XY']
-            cols_to_display = [col for col in info_cols + years_to_analyze_present if col in df.columns]
+            info_cols = ['Nom_Est', 'Id_estacion', 'municipio', 'vereda', 'Celda_XY']
+            cols_to_display = [col for col in info_cols + years_to_analyze_present if col in data_df.columns]
             df_to_display = selected_stations_df[cols_to_display].set_index('Nom_Est')
 
             if not df_to_display.empty and years_to_analyze_present:
@@ -292,20 +297,17 @@ if df is not None:
         st.header("🌎 Mapa de Ubicación de las Estaciones")
         st.markdown("---")
 
-        if gdf is None:
-            st.info("Por favor, carga el archivo shapefile en formato .zip en la sección 'Cargar Datos'.")
+        if 'geometry' not in selected_stations_df.columns:
+            st.info("El archivo de geometría no fue cargado correctamente. Por favor, asegúrate de subir un archivo .zip con el shapefile.")
         elif selected_stations_df.empty:
             st.info("Por favor, selecciona al menos una estación en la barra lateral.")
         else:
             # Botones para centrar el mapa
-            col_map1, col_map2, col_map3 = st.columns(3)
+            col_map1, col_map2 = st.columns(2)
             with col_map1:
                 if st.button("Centrar en Colombia"):
                     st.session_state.map_center_type = 'colombia'
             with col_map2:
-                if st.button("Centrar en Antioquia"):
-                    st.session_state.map_center_type = 'antioquia'
-            with col_map3:
                 if st.button("Centrar en Estaciones Seleccionadas"):
                     st.session_state.map_center_type = 'stations'
 
@@ -315,52 +317,37 @@ if df is not None:
             map_center = [4.5709, -74.2973]
             zoom_level = 6
 
-            gdf_selected = gdf[gdf['Nom_Est'].isin(selected_stations_list)]
-
-            if st.session_state.map_center_type == 'antioquia':
-                map_center = [6.2442, -75.5812]
-                zoom_level = 8
-            elif st.session_state.map_center_type == 'stations' and not gdf_selected.empty:
-                map_center = [gdf_selected.geometry.centroid.y.mean(), gdf_selected.geometry.centroid.x.mean()]
+            if st.session_state.map_center_type == 'stations' and not selected_stations_df.empty and 'Latitud' in selected_stations_df.columns:
+                map_center = [selected_stations_df.geometry.centroid.y.mean(), selected_stations_df.geometry.centroid.x.mean()]
                 zoom_level = 8
             
             m = folium.Map(location=map_center, zoom_start=zoom_level, tiles="CartoDB positron")
 
-            if st.session_state.map_center_type == 'stations' and not gdf_selected.empty:
-                bounds = [[gdf_selected.total_bounds[1], gdf_selected.total_bounds[0]],
-                          [gdf_selected.total_bounds[3], gdf_selected.total_bounds[2]]]
+            if st.session_state.map_center_type == 'stations' and not selected_stations_df.empty:
+                bounds = [[selected_stations_df.total_bounds[1], selected_stations_df.total_bounds[0]],
+                          [selected_stations_df.total_bounds[3], selected_stations_df.total_bounds[2]]]
                 m.fit_bounds(bounds)
             
-            gdf_selected = gdf_selected.merge(selected_stations_df[['Nom_Est', 'Latitud', 'Longitud']], on='Nom_Est', how='left')
-            
-            if years_to_analyze_present:
-                stats_df = selected_stations_df.melt(
-                    id_vars=['Nom_Est'],
-                    value_vars=years_to_analyze_present,
-                    var_name='Año',
-                    value_name='Precipitación'
-                ).groupby('Nom_Est')['Precipitación'].mean().reset_index()
-                stats_df.rename(columns={'Precipitación': 'Precipitación Media (mm)'}, inplace=True)
-                gdf_selected = gdf_selected.merge(stats_df, on='Nom_Est', how='left')
-
-            if not gdf_selected.empty:
+            if not selected_stations_df.empty and 'geometry' in selected_stations_df.columns:
+                
+                # Crear la capa de polígonos del shapefile
                 folium.GeoJson(
-                    gdf_selected.to_json(),
+                    selected_stations_df.to_json(),
                     name='Áreas del Shapefile',
-                    tooltip=folium.features.GeoJsonTooltip(fields=['Nom_Est', 'municipio', 'vereda', 'Precipitación Media (mm)'],
-                                                            aliases=['Estación', 'Municipio', 'Vereda', 'Precipitación Media'],
+                    tooltip=folium.features.GeoJsonTooltip(fields=['Nom_Est', 'municipio', 'vereda'],
+                                                            aliases=['Estación', 'Municipio', 'Vereda'],
                                                             style=("background-color: white; color: #333333; font-family: sans-serif; font-size: 12px; padding: 10px;"))
                 ).add_to(m)
 
-                for idx, row in gdf_selected.iterrows():
+                # Agregar marcadores para cada estación
+                for idx, row in selected_stations_df.iterrows():
                     if pd.notna(row['Latitud']) and pd.notna(row['Longitud']):
                         pop_up_text = (
-                            f"<b>Estación:</b> {row['Nom_Est']}<br>"
-                            f"<b>Municipio:</b> {row['municipio']}<br>"
-                            f"<b>Vereda:</b> {row['vereda']}<br>"
-                            f"<b>Precipitación Media:</b> {row.get('Precipitación Media (mm)', 'N/A'):.2f} mm"
+                            f"<b>Estación:</b> {row.get('Nom_Est', 'N/A')}<br>"
+                            f"<b>Municipio:</b> {row.get('municipio', 'N/A')}<br>"
+                            f"<b>Vereda:</b> {row.get('vereda', 'N/A')}"
                         )
-                        tooltip_text = f"Estación: {row['Nom_Est']}"
+                        tooltip_text = f"Estación: {row.get('Nom_Est', 'N/A')}"
                         folium.CircleMarker(
                             location=[row['Latitud'], row['Longitud']],
                             radius=6,
@@ -432,3 +419,6 @@ if df is not None:
                     st.plotly_chart(fig, use_container_width=True)
             else:
                 st.info("El rango de años seleccionado no contiene datos de precipitación para las estaciones seleccionadas. Por favor, ajusta el rango de años.")
+
+else:
+    st.info("Por favor, sube los archivos .csv y .zip en la sección 'Cargar Datos' para comenzar a analizar la información.")
