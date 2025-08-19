@@ -20,11 +20,11 @@ st.markdown("---")
 def load_all_data(uploaded_file_csv, uploaded_zip):
     """
     Carga, procesa y une los datos del CSV y del shapefile.
-    Retorna el GeoDataFrame unido o None en caso de error.
+    Retorna el GeoDataFrame unido o el DataFrame del CSV.
     """
     df = None
     gdf = None
-    
+
     # Cargar CSV
     if uploaded_file_csv:
         try:
@@ -44,7 +44,7 @@ def load_all_data(uploaded_file_csv, uploaded_zip):
         except Exception as e:
             st.error(f"Error al leer el archivo CSV: {e}")
             return None
-    
+
     # Cargar Shapefile
     if uploaded_zip:
         try:
@@ -59,24 +59,23 @@ def load_all_data(uploaded_file_csv, uploaded_zip):
                     gdf = gdf.to_crs("EPSG:4326")
                     if 'Nom_Est' not in gdf.columns:
                         st.error("Error: El shapefile no contiene la columna requerida 'Nom_Est'.")
-                        return None
-                    st.success("Archivos Shapefile cargados exitosamente.")
+                        gdf = None
+                    else:
+                        st.success("Archivos Shapefile cargados exitosamente.")
                 else:
                     st.error("No se encontró ningún archivo .shp en el archivo ZIP. Asegúrate de que el archivo .zip contenga al menos un .shp.")
                     return None
         except Exception as e:
             st.error(f"Error al procesar el archivo ZIP: {e}")
             return None
-    
-    # Unir los datos
+
+    # Unir los datos: unir el shapefile al CSV para conservar todos los datos de estación
     if df is not None and gdf is not None:
-        merged_gdf = gdf.merge(df, on='Nom_Est', how='left')
+        merged_gdf = df.merge(gdf, on='Nom_Est', how='left')
         st.success("Datos de CSV y Shapefile unidos exitosamente.")
         return merged_gdf
     elif df is not None:
         return df
-    elif gdf is not None:
-        return gdf
     else:
         return None
 
@@ -94,15 +93,23 @@ if data_df is not None and not data_df.empty:
     st.sidebar.markdown("---")
 
     # Selectores por municipio y celda
-    municipios = sorted(data_df['municipio'].dropna().unique())
-    selected_municipio = st.sidebar.multiselect("Elige uno o más municipios:", municipios)
+    if 'municipio' in data_df.columns:
+        municipios = sorted(data_df['municipio'].dropna().unique())
+        selected_municipio = st.sidebar.multiselect("Elige uno o más municipios:", municipios)
+    else:
+        st.sidebar.warning("Columna 'municipio' no encontrada. La aplicación podría funcionar de forma limitada.")
+        selected_municipio = []
 
     filtered_df_by_loc = data_df.copy()
     if selected_municipio:
         filtered_df_by_loc = filtered_df_by_loc[filtered_df_by_loc['municipio'].isin(selected_municipio)]
     
-    celdas_by_municipio = sorted(filtered_df_by_loc['Celda_XY'].dropna().unique())
-    selected_celda = st.sidebar.multiselect("Elige una o más celdas:", celdas_by_municipio)
+    if 'Celda_XY' in filtered_df_by_loc.columns:
+        celdas_by_municipio = sorted(filtered_df_by_loc['Celda_XY'].dropna().unique())
+        selected_celda = st.sidebar.multiselect("Elige una o más celdas:", celdas_by_municipio)
+    else:
+        st.sidebar.warning("Columna 'Celda_XY' no encontrada. La aplicación podría funcionar de forma limitada.")
+        selected_celda = []
 
     if selected_celda:
         filtered_df_by_loc = filtered_df_by_loc[filtered_df_by_loc['Celda_XY'].isin(selected_celda)]
@@ -132,12 +139,17 @@ if data_df is not None and not data_df.empty:
     selected_stations_df = data_df[data_df['Nom_Est'].isin(selected_stations_list)]
 
     years_present = [col for col in data_df.columns if str(col).isdigit()]
-    start_year, end_year = st.sidebar.slider(
-        "Elige el rango de años:",
-        min_value=int(min(years_present)) if years_present else 1970,
-        max_value=int(max(years_present)) if years_present else 2021,
-        value=(int(min(years_present)) if years_present else 1970, int(max(years_present)) if years_present else 2021)
-    )
+    if years_present:
+        start_year, end_year = st.sidebar.slider(
+            "Elige el rango de años:",
+            min_value=int(min(years_present)),
+            max_value=int(max(years_present)),
+            value=(int(min(years_present)), int(max(years_present)))
+        )
+    else:
+        st.sidebar.warning("No se encontraron columnas de años para la precipitación.")
+        start_year, end_year = 1970, 2021
+    
     years_to_analyze = [str(year) for year in range(start_year, end_year + 1)]
     years_to_analyze_present = [year for year in years_to_analyze if year in selected_stations_df.columns]
     
