@@ -299,22 +299,36 @@ if df is not None:
                 elif selected_stations_df.empty:
                     st.info("Por favor, selecciona al menos una estación en la barra lateral.")
                 else:
-                    gdf_selected = gdf[gdf['Nom_Est'].isin(selected_stations_list)]
+                    st.write("El mapa se ajusta automáticamente para mostrar todas las estaciones seleccionadas. Si el mapa parece muy alejado, es porque las estaciones están muy distantes entre sí. Puedes usar el botón de abajo para centrar la vista.")
+
+                    # Botón para resetear la vista del mapa
+                    if st.button("Centrar Mapa en Colombia"):
+                        st.session_state.reset_map = True
+
+                    # Crear el mapa de Folium
+                    if 'reset_map' in st.session_state and st.session_state.reset_map:
+                        map_center = [4.5709, -74.2973] # Centro de Colombia
+                        m = folium.Map(location=map_center, zoom_start=6, tiles="CartoDB positron")
+                        st.session_state.reset_map = False
+                    else:
+                        gdf_selected = gdf[gdf['Nom_Est'].isin(selected_stations_list)]
+                        
+                        if not gdf_selected.empty:
+                            map_center = [gdf_selected.geometry.centroid.y.mean(), gdf_selected.geometry.centroid.x.mean()]
+                            m = folium.Map(location=map_center, zoom_start=8, tiles="CartoDB positron")
+                            
+                            # Ajustar el encuadre del mapa a las estaciones seleccionadas
+                            bounds = [[gdf_selected.total_bounds[1], gdf_selected.total_bounds[0]], 
+                                      [gdf_selected.total_bounds[3], gdf_selected.total_bounds[2]]]
+                            m.fit_bounds(bounds)
+                        else:
+                            map_center = [4.5709, -74.2973]
+                            m = folium.Map(location=map_center, zoom_start=6, tiles="CartoDB positron")
                     
+                    gdf_selected = gdf[gdf['Nom_Est'].isin(selected_stations_list)]
                     gdf_selected = gdf_selected.merge(stats_df, on='Nom_Est', how='left')
 
-                    if gdf_selected.empty:
-                        st.info("Ninguna de las estaciones seleccionadas tiene información geoespacial en el shapefile.")
-                    else:
-                        # Crear el mapa de Folium
-                        map_center = [gdf_selected.geometry.centroid.y.mean(), gdf_selected.geometry.centroid.x.mean()]
-                        m = folium.Map(location=map_center, zoom_start=8, tiles="CartoDB positron")
-
-                        # Ajustar el encuadre del mapa a las estaciones seleccionadas
-                        bounds = [[gdf_selected.total_bounds[1], gdf_selected.total_bounds[0]], 
-                                  [gdf_selected.total_bounds[3], gdf_selected.total_bounds[2]]]
-                        m.fit_bounds(bounds)
-                        
+                    if not gdf_selected.empty:
                         # Añadir las áreas (polígonos) del shapefile al mapa
                         folium.GeoJson(
                             gdf_selected.to_json(),
@@ -401,12 +415,12 @@ if df is not None:
                                 size="Precipitación",
                                 color_continuous_scale=px.colors.sequential.Bluyl,
                                 animation_frame="Año",
-                                mapbox_style="carto-positron",
+                                mapbox_style="stamen-terrain", # Cambiado a un estilo más confiable
                                 zoom=7,
                                 title="Precipitación Anual Animada en el Mapa"
                             )
                             fig.update_layout(
-                                mapbox_style="open-street-map",
+                                mapbox_style="stamen-terrain", # Cambiado a un estilo más confiable
                                 mapbox_zoom=7,
                                 mapbox_center={"lat": df_melted_map['Latitud'].mean(), "lon": df_melted_map['Longitud'].mean()},
                             )
