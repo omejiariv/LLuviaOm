@@ -304,6 +304,7 @@ if data_df is not None and not data_df.empty:
             )
             st.plotly_chart(fig_bar, use_container_width=True)
 
+            # Nuevo gráfico de caja (Boxplot)
             st.subheader("Análisis de Distribución (Box Plot)")
             if not df_melted.empty:
                 fig_box = px.box(
