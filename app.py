@@ -70,33 +70,39 @@ with st.sidebar.expander("📂 Cargar Datos"):
 df = None
 if df_csv is not None and gdf is not None:
     try:
-        # Renombrar columnas para una unión consistente
-        # Se asume que en el CSV el nombre de la estación es 'Nom_Est' y el municipio es 'Mpio'
-        # Y en el Shapefile (GeoDataFrame) la estación puede ser 'Nom_Est', 'NombrEst' o 'estacion' y el municipio es 'NOMB_MPIO' o 'MUNICIPIO'
+        # Renombrar columnas para una unión consistente y evitar duplicados
+        # Mapeo de posibles nombres de columnas a nombres estandarizados
+        col_mapping = {
+            'Nom_Est': ['Nom_Est', 'nom_est', 'nombr_est', 'estacion'],
+            'municipio': ['municipio', 'NOMB_MPIO', 'nom_mpio', 'Mpio', 'Mpio.'],
+            'vereda': ['vereda', 'NOMBRE_VER', 'nombre_ver'],
+            'celda': ['celda', 'Celda_XY', 'celda_xy']
+        }
+
+        # Función para renombrar columnas de manera segura
+        def rename_and_drop_duplicates(dataframe, col_mapping):
+            df_cols = [c.lower() for c in dataframe.columns]
+            dataframe.columns = df_cols
+            
+            new_df = dataframe.copy()
+            for std_name, possible_names in col_mapping.items():
+                found_col = None
+                for name in possible_names:
+                    if name in new_df.columns:
+                        found_col = name
+                        break
+                if found_col:
+                    if found_col != std_name:
+                        new_df.rename(columns={found_col: std_name}, inplace=True)
+                    # Eliminar las otras columnas duplicadas que no se usaron
+                    cols_to_drop = [n for n in possible_names if n in new_df.columns and n != found_col]
+                    new_df.drop(columns=cols_to_drop, inplace=True, errors='ignore')
+            return new_df
+
+        # Aplicar el renombramiento a ambos DataFrames
+        df_csv = rename_and_drop_duplicates(df_csv, col_mapping)
+        gdf = rename_and_drop_duplicates(gdf, col_mapping)
         
-        # Renombrar columnas en el DataFrame del CSV
-        df_csv = df_csv.rename(columns={
-            'Mpio': 'municipio',
-            'NOMBRE_VER': 'vereda',
-            'Nom_Est': 'Nom_Est',
-            'Celda_XY': 'celda'
-        }, errors='ignore')
-
-        # Renombrar columnas en el GeoDataFrame
-        gdf = gdf.rename(columns={
-            'NOMB_MPIO': 'municipio',
-            'NOMBRE_VER': 'vereda',
-            'Nom_Est': 'Nom_Est',
-            'Celda_XY': 'celda',
-            'estacion': 'estacion'
-        }, errors='ignore')
-
-        # Corregir la columna de estaciones si está bajo otro nombre
-        if 'NombrEst' in gdf.columns:
-            gdf = gdf.rename(columns={'NombrEst': 'Nom_Est'}, errors='ignore')
-        if 'estacion' in df_csv.columns:
-            df_csv = df_csv.rename(columns={'estacion': 'Nom_Est'}, errors='ignore')
-
         # Unir el GeoDataFrame con el DataFrame del CSV
         # Usamos un left merge para mantener todas las geometrías del mapa
         df = gdf.merge(df_csv, on='Nom_Est', how='left')
@@ -212,7 +218,7 @@ if df is not None and not df.empty:
             st.subheader("Estadísticas de Precipitación")
             
             # Prepara el DataFrame para estadísticas
-            stats_df = selected_stations_df[['Nom_Est', 'estacion', 'municipio', 'vereda']].copy()
+            stats_df = selected_stations_df[['Nom_Est', 'municipio', 'vereda']].copy()
             
             if years_to_analyze_present and not selected_stations_df.empty:
                 # Calcular max, min, mean, std
@@ -247,7 +253,6 @@ if df is not None and not df.empty:
                     
                     summary_row = pd.DataFrame([{
                         'Nom_Est': 'Todas las estaciones',
-                        'estacion': '',
                         'municipio': '',
                         'vereda': '',
                         'Precipitación Máxima (mm)': max_precip,
@@ -415,10 +420,10 @@ if df is not None and not df.empty:
 
             if not df.empty:
                 gdf_final = df.copy()
-                stats_df_cols = ['Nom_Est', 'estacion', 'municipio', 'vereda', 'Precipitación Media (mm)']
+                stats_df_cols = ['Nom_Est', 'municipio', 'vereda', 'Precipitación Media (mm)']
                 
                 # Crear un DataFrame de estadísticas para la visualización del mapa
-                stats_df = selected_stations_df[['Nom_Est', 'estacion', 'municipio', 'vereda']].copy()
+                stats_df = selected_stations_df[['Nom_Est', 'municipio', 'vereda']].copy()
                 if years_to_analyze_present:
                     stats_df['Precipitación Media (mm)'] = selected_stations_df[years_to_analyze_present].mean(axis=1).round(2)
                 
