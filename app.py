@@ -16,36 +16,34 @@ st.set_page_config(layout="wide")
 st.title('☔ Visor de Información Geoespacial de Precipitación 🌧️')
 st.markdown("---")
 
-# --- Sección para la carga de datos en la barra lateral ---
-st.sidebar.header("⚙️ Cargar Datos y Opciones de Filtrado")
-with st.sidebar.expander("📂 Cargar Datos"):
+# --- Sección para la carga de datos ---
+with st.expander("📂 Cargar Datos"):
     st.write("Carga tu archivo `mapaCV.csv` y los archivos del shapefile (`.shp`, `.shx`, `.dbf`) comprimidos en un único archivo `.zip`.")
     
     # Carga de archivos CSV
-    uploaded_file_csv = st.file_uploader("Cargar archivo .csv (mapaCV.csv)", type="csv", key="csv_uploader")
+    uploaded_file_csv = st.file_uploader("Cargar archivo .csv (mapaCV.csv)", type="csv")
     df = None
     if uploaded_file_csv:
         try:
-            # Usar 'utf-8' por defecto, pero manejar el error con 'latin-1' si falla
-            df = pd.read_csv(uploaded_file_csv, sep=';', encoding='utf-8')
+            df = pd.read_csv(uploaded_file_csv, sep=';')
             # Renombrar columnas con los nombres correctos del usuario
             df = df.rename(columns={'Mpio': 'municipio', 'NOMBRE_VER': 'vereda'})
             st.success("Archivo CSV cargado exitosamente.")
-        except UnicodeDecodeError:
-            try:
-                df = pd.read_csv(uploaded_file_csv, sep=';', encoding='latin-1')
-                # Renombrar columnas con los nombres correctos del usuario
-                df = df.rename(columns={'Mpio': 'municipio', 'NOMBRE_VER': 'vereda'})
-                st.success("Archivo CSV cargado exitosamente (con codificación latin-1).")
-            except Exception as e:
-                st.error(f"Error al leer el archivo CSV: {e}")
-                df = None
         except Exception as e:
             st.error(f"Error al leer el archivo CSV: {e}")
             df = None
+    else:
+        try:
+            df = pd.read_csv('mapaCV.csv', sep=';')
+            # Renombrar columnas con los nombres correctos del usuario
+            df = df.rename(columns={'Mpio': 'municipio', 'NOMBRE_VER': 'vereda'})
+            st.warning("Se ha cargado el archivo CSV usando ';' como separador.")
+        except (FileNotFound, pd.errors.ParserError):
+            st.warning("No se pudo leer 'mapaCV.csv'. Por favor, cárgalo manualmente o revisa su formato.")
+            df = None
 
     # Carga de archivo Shapefile en formato ZIP
-    uploaded_zip = st.file_uploader("Cargar shapefile (.zip)", type="zip", key="zip_uploader")
+    uploaded_zip = st.file_uploader("Cargar shapefile (.zip)", type="zip")
     gdf = None
     if uploaded_zip:
         try:
@@ -63,7 +61,7 @@ with st.sidebar.expander("📂 Cargar Datos"):
                     gdf.set_crs("EPSG:9377", inplace=True)
                     gdf = gdf.to_crs("EPSG:4326")
                     
-                    st.success("Archivos Shapefile cargados exitosamente.")
+                    st.success("Archivos Shapefile cargados exitosamente y sistema de coordenadas configurado y convertido a WGS84.")
                 else:
                     st.error("No se encontró ningún archivo .shp en el archivo ZIP. Asegúrate de que el archivo .zip contenga al menos un .shp.")
                     gdf = None
@@ -78,24 +76,13 @@ if df is not None:
     if missing_cols:
         st.error(f"Error: Las siguientes columnas requeridas no se encuentran en el archivo CSV: {', '.join(missing_cols)}. Por favor, verifica los nombres de las columnas en tu archivo.")
     else:
-        # Unir el DataFrame con el GeoDataFrame para obtener la geometría correcta
-        if gdf is not None:
-            # Asegurar que las columnas de unión estén en ambos dataframes
-            df_merged = pd.merge(df, gdf, on='Nom_Est', how='inner')
-            
-            # Usar el centroide del polígono como las coordenadas
-            df_merged['Latitud'] = df_merged.geometry.centroid.y
-            df_merged['Longitud'] = df_merged.geometry.centroid.x
-            
-            # Convertir las columnas a tipo numérico, manejando errores de 'nan'
-            df_merged['Latitud'] = pd.to_numeric(df_merged['Latitud'], errors='coerce')
-            df_merged['Longitud'] = pd.to_numeric(df_merged['Longitud'], errors='coerce')
-            
-            # Eliminar filas con valores NaN en latitud/longitud
-            df_merged.dropna(subset=['Latitud', 'Longitud'], inplace=True)
-            
-            df = df_merged
-
+        # Convertir columnas a tipo numérico, manejando errores de 'nan'
+        df['Latitud'] = pd.to_numeric(df['Latitud'], errors='coerce')
+        df['Longitud'] = pd.to_numeric(df['Longitud'], errors='coerce')
+        
+        # Eliminar filas con valores NaN en latitud/longitud
+        df.dropna(subset=['Latitud', 'Longitud'], inplace=True)
+        
         # Verificar si el DataFrame está vacío después de la limpieza
         if df.empty:
             st.error("El DataFrame está vacío. Por favor, asegúrate de que tu archivo CSV contenga datos válidos en las columnas 'Nom_Est', 'Latitud' y 'Longitud'.")
@@ -107,9 +94,9 @@ if df is not None:
                 "🌎 Mapa de Estaciones", 
                 "🎬 Animación de Lluvia"
             ])
-            
-            # --- Filtros en la barra lateral ---
-            st.sidebar.subheader("Filtros de Datos")
+
+            # --- Pestaña para opciones de filtrado ---
+            st.sidebar.header("⚙️ Opciones de Filtrado")
             
             # Selectores por municipio y celda, ahora multiseleccionables
             municipios = sorted(df['municipio'].unique())
@@ -260,18 +247,15 @@ if df is not None:
                             var_name='Año',
                             value_name='Precipitación'
                         )
-                        if not df_melted_temp.empty:
-                            min_precip = df_melted_temp['Precipitación'].min()
-                            max_precip = df_melted_temp['Precipitación'].max()
-                            
-                            min_y = st.number_input("Valor mínimo del eje Y:", value=float(min_precip), format="%.2f")
-                            max_y = st.number_input("Valor máximo del eje Y:", value=float(max_precip), format="%.2f")
-                            if min_y >= max_y:
-                                st.warning("El valor mínimo debe ser menor que el valor máximo.")
-                            else:
-                                y_range = (min_y, max_y)
+                        min_precip = df_melted_temp['Precipitación'].min()
+                        max_precip = df_melted_temp['Precipitación'].max()
+                        
+                        min_y = st.number_input("Valor mínimo del eje Y:", value=float(min_precip), format="%.2f")
+                        max_y = st.number_input("Valor máximo del eje Y:", value=float(max_precip), format="%.2f")
+                        if min_y >= max_y:
+                            st.warning("El valor mínimo debe ser menor que el valor máximo.")
                         else:
-                            st.warning("No hay datos de precipitación para el rango de años y estaciones seleccionadas.")
+                            y_range = (min_y, max_y)
 
                     st.subheader("Precipitación Anual por Estación")
                     chart_type = st.radio("Elige el tipo de gráfico:", ('Líneas', 'Barras'))
@@ -341,7 +325,7 @@ if df is not None:
                 elif selected_stations_df.empty:
                     st.info("Por favor, selecciona al menos una estación en la barra lateral.")
                 else:
-                    st.write("El mapa se ajusta automáticamente para mostrar todas las estaciones seleccionadas. Puedes usar los botones de abajo para centrar la vista.")
+                    st.write("El mapa se ajusta automáticamente para mostrar todas las estaciones seleccionadas. Si el mapa parece muy alejado, es porque las estaciones están muy distantes entre sí. Puedes usar los botones de abajo para centrar la vista.")
 
                     # Botones para centrar el mapa
                     col_map1, col_map2, col_map3 = st.columns(3)
@@ -399,45 +383,44 @@ if df is not None:
                             map_center = [4.5709, -74.2973]
                             m = folium.Map(location=map_center, zoom_start=6, tiles="CartoDB positron")
                     
-                    if gdf is not None:
-                        gdf_selected = gdf[gdf['Nom_Est'].isin(selected_stations_list)]
-                        gdf_selected = gdf_selected.merge(stats_df, on='Nom_Est', how='left')
+                    gdf_selected = gdf[gdf['Nom_Est'].isin(selected_stations_list)]
+                    gdf_selected = gdf_selected.merge(stats_df, on='Nom_Est', how='left')
 
-                        if not gdf_selected.empty:
-                            # Añadir las áreas (polígonos) del shapefile al mapa
-                            folium.GeoJson(
-                                gdf_selected.to_json(),
-                                name='Áreas del Shapefile',
-                                tooltip=folium.features.GeoJsonTooltip(fields=['Nom_Est', 'municipio', 'vereda', 'Precipitación Media (mm)'],
-                                                                        aliases=['Estación', 'Municipio', 'Vereda', 'Precipitación Media'],
-                                                                        style=("background-color: white; color: #333333; font-family: sans-serif; font-size: 12px; padding: 10px;"))
-                            ).add_to(m)
+                    if not gdf_selected.empty:
+                        # Añadir las áreas (polígonos) del shapefile al mapa
+                        folium.GeoJson(
+                            gdf_selected.to_json(),
+                            name='Áreas del Shapefile',
+                            tooltip=folium.features.GeoJsonTooltip(fields=['Nom_Est', 'municipio', 'vereda', 'Precipitación Media (mm)'],
+                                                                    aliases=['Estación', 'Municipio', 'Vereda', 'Precipitación Media'],
+                                                                    style=("background-color: white; color: #333333; font-family: sans-serif; font-size: 12px; padding: 10px;"))
+                        ).add_to(m)
 
-                            # Añadir los marcadores circulares para las estaciones
-                            for idx, row in gdf_selected.iterrows():
-                                if pd.notna(row['Latitud']) and pd.notna(row['Longitud']):
-                                    pop_up_text = (
-                                        f"<b>Estación:</b> {row['Nom_Est']}<br>"
-                                        f"<b>Municipio:</b> {row['municipio']}<br>"
-                                        f"<b>Vereda:</b> {row['vereda']}<br>"
-                                        f"<b>Precipitación Media:</b> {row['Precipitación Media (mm)']:.2f} mm"
-                                    )
-                                    tooltip_text = f"Estación: {row['Nom_Est']}"
+                        # Añadir los marcadores circulares para las estaciones
+                        for idx, row in gdf_selected.iterrows():
+                            if pd.notna(row['Latitud']) and pd.notna(row['Longitud']):
+                                pop_up_text = (
+                                    f"<b>Estación:</b> {row['Nom_Est']}<br>"
+                                    f"<b>Municipio:</b> {row['municipio']}<br>"
+                                    f"<b>Vereda:</b> {row['vereda']}<br>"
+                                    f"<b>Precipitación Media:</b> {row['Precipitación Media (mm)']:.2f} mm"
+                                )
+                                tooltip_text = f"Estación: {row['Nom_Est']}"
 
-                                    icon_size = 12
+                                icon_size = 12
 
-                                    folium.CircleMarker(
-                                        location=[row['Latitud'], row['Longitud']],
-                                        radius=icon_size / 2,
-                                        popup=pop_up_text,
-                                        tooltip=tooltip_text,
-                                        color='blue',
-                                        fill=True,
-                                        fill_color='blue',
-                                        fill_opacity=0.6
-                                    ).add_to(m)
+                                folium.CircleMarker(
+                                    location=[row['Latitud'], row['Longitud']],
+                                    radius=icon_size / 2,
+                                    popup=pop_up_text,
+                                    tooltip=tooltip_text,
+                                    color='blue',
+                                    fill=True,
+                                    fill_color='blue',
+                                    fill_opacity=0.6
+                                ).add_to(m)
 
-                            folium_static(m)
+                        folium_static(m)
 
             # --- Pestaña para animaciones ---
             with tab4:
