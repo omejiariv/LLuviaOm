@@ -70,7 +70,7 @@ with st.expander("📂 Cargar Datos"):
 
 if df is not None:
     # Validar que las columnas necesarias existan
-    required_cols = ['Nom_Est', 'Latitud', 'Longitud', 'municipio', 'Celda_XY', 'vereda', 'estacion', 'departamento']
+    required_cols = ['Nom_Est', 'Latitud', 'Longitud', 'municipio', 'Celda_XY', 'vereda', 'Id_estacion', 'departamento']
     missing_cols = [col for col in required_cols if col not in df.columns]
     
     if missing_cols:
@@ -159,7 +159,7 @@ if df is not None:
                     st.subheader("Información básica de las Estaciones Seleccionadas")
                     
                     # Columnas adicionales del CSV
-                    info_cols = ['Nom_Est', 'estacion', 'porc_datos', 'departamento', 'municipio', 'vereda', 'Celda_XY']
+                    info_cols = ['Nom_Est', 'Id_estacion', 'porc_datos', 'departamento', 'municipio', 'vereda', 'Celda_XY']
                     
                     cols_to_display = [col for col in info_cols + years_to_analyze_present if col in df.columns]
                     df_to_display = selected_stations_df[cols_to_display].set_index('Nom_Est')
@@ -179,7 +179,7 @@ if df is not None:
                     st.subheader("Estadísticas de Precipitación")
                     
                     # Prepara el DataFrame para estadísticas
-                    stats_df = selected_stations_df[['Nom_Est', 'estacion', 'municipio', 'vereda']].copy()
+                    stats_df = selected_stations_df[['Nom_Est', 'Id_estacion', 'municipio', 'vereda']].copy()
                     
                     if years_to_analyze_present and not selected_stations_df.empty:
                         # Calcular max, min, mean, std
@@ -490,3 +490,4 @@ if df is not None:
                             st.plotly_chart(fig, use_container_width=True)
                         else:
                             st.info("El rango de años seleccionado no contiene datos de precipitación para las estaciones seleccionadas. Por favor, ajusta el rango de años.")
+
