@@ -4,470 +4,489 @@ import altair as alt
 import folium
 from streamlit_folium import folium_static
 import plotly.express as px
+import plotly.graph_objects as go
 import geopandas as gpd
 import zipfile
 import tempfile
 import os
 import io
 
-# --- Título y Configuración General ---
+# Título de la aplicación
 st.set_page_config(layout="wide")
-st.title(' ☔  Visor de Información Geoespacial de Precipitación  🌧️ ')
+st.title('☔ Visor de Información Geoespacial de Precipitación 🌧️')
 st.markdown("---")
 
-# --- Funciones de Carga y Caching ---
-@st.cache_data
-def load_all_data(uploaded_file_csv, uploaded_zip):
-    """
-    Carga, procesa y une los datos del CSV y del shapefile.
-    Normaliza los nombres de las columnas y valida su existencia.
-    Retorna el GeoDataFrame unido o el DataFrame del CSV.
-    """
+# --- Sección para la carga de datos ---
+with st.expander("📂 Cargar Datos"):
+    st.write("Carga tu archivo `mapaCV.csv` y los archivos del shapefile (`.shp`, `.shx`, `.dbf`) comprimidos en un único archivo `.zip`.")
+    
+    # Carga de archivos CSV
+    uploaded_file_csv = st.file_uploader("Cargar archivo .csv (mapaCV.csv)", type="csv")
     df = None
-    gdf = None
-
-    # Cargar CSV
     if uploaded_file_csv:
         try:
             df = pd.read_csv(uploaded_file_csv, sep=';')
-            # Normalizar nombres de columnas
-            df.columns = df.columns.str.strip()
+            # Renombrar columnas con los nombres correctos del usuario
             df = df.rename(columns={'Mpio': 'municipio', 'NOMBRE_VER': 'vereda'})
-            
-            # Validación estricta de columnas requeridas
-            required_csv_cols = ['Nom_Est', 'Latitud', 'Longitud', 'municipio', 'Celda_XY', 'vereda', 'Id_estacion']
-            missing_cols = [col for col in required_csv_cols if col not in df.columns]
-            if missing_cols:
-                st.error(f"Error: Las siguientes columnas requeridas no se encuentran en el archivo CSV: {', '.join(missing_cols)}. Por favor, verifica los nombres de las columnas en tu archivo.")
-                return None
-            
-            df['Latitud'] = pd.to_numeric(df['Latitud'], errors='coerce')
-            df['Longitud'] = pd.to_numeric(df['Longitud'], errors='coerce')
-            df.dropna(subset=['Latitud', 'Longitud'], inplace=True)
-            if df.empty:
-                st.error("El DataFrame está vacío. Por favor, asegúrate de que tu archivo CSV contenga datos válidos.")
-                return None
             st.success("Archivo CSV cargado exitosamente.")
         except Exception as e:
             st.error(f"Error al leer el archivo CSV: {e}")
-            return None
+            df = None
+    else:
+        try:
+            df = pd.read_csv('mapaCV.csv', sep=';')
+            # Renombrar columnas con los nombres correctos del usuario
+            df = df.rename(columns={'Mpio': 'municipio', 'NOMBRE_VER': 'vereda'})
+            st.warning("Se ha cargado el archivo CSV usando ';' como separador.")
+        except (FileNotFound, pd.errors.ParserError):
+            st.warning("No se pudo leer 'mapaCV.csv'. Por favor, cárgalo manualmente o revisa su formato.")
+            df = None
 
-    # Cargar Shapefile
+    # Carga de archivo Shapefile en formato ZIP
+    uploaded_zip = st.file_uploader("Cargar shapefile (.zip)", type="zip")
+    gdf = None
     if uploaded_zip:
         try:
             with tempfile.TemporaryDirectory() as temp_dir:
                 with zipfile.ZipFile(uploaded_zip, 'r') as zip_ref:
                     zip_ref.extractall(temp_dir)
+                
                 shp_files = [f for f in os.listdir(temp_dir) if f.endswith('.shp')]
                 if shp_files:
                     shp_path = os.path.join(temp_dir, shp_files[0])
                     gdf = gpd.read_file(shp_path)
-                    # Normalizar nombres de columnas
-                    gdf.columns = gdf.columns.str.strip()
+                    
+                    # Asignar el CRS correcto y convertir a WGS84
+                    # MAGNA-SIRGAS_CMT12 corresponde a EPSG:9377
                     gdf.set_crs("EPSG:9377", inplace=True)
                     gdf = gdf.to_crs("EPSG:4326")
-                    if 'Nom_Est' not in gdf.columns:
-                        st.error("Error: El shapefile no contiene la columna requerida 'Nom_Est'.")
-                        gdf = None
-                    else:
-                        st.success("Archivos Shapefile cargados exitosamente.")
+                    
+                    st.success("Archivos Shapefile cargados exitosamente y sistema de coordenadas configurado y convertido a WGS84.")
                 else:
                     st.error("No se encontró ningún archivo .shp en el archivo ZIP. Asegúrate de que el archivo .zip contenga al menos un .shp.")
-                    return None
+                    gdf = None
         except Exception as e:
             st.error(f"Error al procesar el archivo ZIP: {e}")
-            return None
 
-    # Unir los datos
-    if df is not None and gdf is not None:
-        merged_gdf = df.merge(gdf, on='Nom_Est', how='left')
-        st.success("Datos de CSV y Shapefile unidos exitosamente.")
-        return merged_gdf
-    elif df is not None:
-        return df
-    else:
-        return None
-
-# --- Sección de Carga de Datos ---
-with st.expander("📂 Cargar Datos"):
-    st.write("Carga tu archivo `mapaCV.csv` y los archivos del shapefile (`.shp`, `.shx`, `.dbf`) comprimidos en un único archivo `.zip`.")
-    uploaded_file_csv = st.file_uploader("Cargar archivo .csv (mapaCV.csv)", type="csv")
-    uploaded_zip = st.file_uploader("Cargar shapefile (.zip)", type="zip")
-
-data_df = load_all_data(uploaded_file_csv, uploaded_zip)
-
-if data_df is not None and not data_df.empty:
-    # --- Sidebar de Filtrado (Sección 1: Opciones) ---
-    st.sidebar.header("⚙️ Opciones de Filtrado")
-    st.sidebar.markdown("---")
-
-    # Selectores por municipio y celda
-    filtered_df_by_loc = data_df.copy()
+if df is not None:
+    # Validar que las columnas necesarias existan
+    required_cols = ['Nom_Est', 'Latitud', 'Longitud', 'municipio', 'Celda_XY', 'vereda', 'Id_estacion', 'departamento']
+    missing_cols = [col for col in required_cols if col not in df.columns]
     
-    if 'municipio' in filtered_df_by_loc.columns:
-        municipios = sorted(filtered_df_by_loc['municipio'].dropna().unique())
-        selected_municipio = st.sidebar.multiselect("Elige uno o más municipios:", municipios)
-        if selected_municipio:
-            filtered_df_by_loc = filtered_df_by_loc[filtered_df_by_loc['municipio'].isin(selected_municipio)]
+    if missing_cols:
+        st.error(f"Error: Las siguientes columnas requeridas no se encuentran en el archivo CSV: {', '.join(missing_cols)}. Por favor, verifica los nombres de las columnas en tu archivo.")
     else:
-        st.sidebar.warning("Columna 'municipio' no encontrada. La aplicación podría funcionar de forma limitada.")
-        selected_municipio = []
-
-    if 'Celda_XY' in filtered_df_by_loc.columns:
-        celdas_by_municipio = sorted(filtered_df_by_loc['Celda_XY'].dropna().unique())
-        selected_celda = st.sidebar.multiselect("Elige una o más celdas:", celdas_by_municipio)
-        if selected_celda:
-            filtered_df_by_loc = filtered_df_by_loc[filtered_df_by_loc['Celda_XY'].isin(selected_celda)]
-    else:
-        st.sidebar.warning("Columna 'Celda_XY' no encontrada. La aplicación podría funcionar de forma limitada.")
-        selected_celda = []
-
-    all_stations = sorted(filtered_df_by_loc['Nom_Est'].dropna().unique())
-
-    # Controles de selección de estaciones
-    with st.sidebar.expander("Seleccionar Estaciones"):
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("Seleccionar todas las estaciones"):
-                st.session_state.selected_stations = all_stations
-        with col2:
-            if st.button("Limpiar selección"):
-                st.session_state.selected_stations = []
-
-        if 'selected_stations' not in st.session_state:
-            st.session_state.selected_stations = []
+        # Convertir columnas a tipo numérico, manejando errores de 'nan'
+        df['Latitud'] = pd.to_numeric(df['Latitud'], errors='coerce')
+        df['Longitud'] = pd.to_numeric(df['Longitud'], errors='coerce')
         
-        valid_selected_stations = [s for s in st.session_state.selected_stations if s in all_stations]
-        if set(valid_selected_stations) != set(st.session_state.selected_stations):
-            st.session_state.selected_stations = valid_selected_stations
-
-        selected_stations_list = st.multiselect(
-            "Estaciones disponibles:",
-            options=all_stations,
-            default=st.session_state.selected_stations
-        )
-        st.session_state.selected_stations = selected_stations_list
-
-    # Filtrar el DataFrame y convertir a GeoDataFrame si es necesario
-    selected_stations_df = data_df[data_df['Nom_Est'].isin(selected_stations_list)]
-    if 'geometry' in selected_stations_df.columns and not isinstance(selected_stations_df, gpd.GeoDataFrame):
-        selected_stations_df = gpd.GeoDataFrame(selected_stations_df, geometry='geometry', crs="EPSG:4326")
-
-    years_present = [col for col in data_df.columns if str(col).isdigit()]
-    if years_present:
-        start_year, end_year = st.sidebar.slider(
-            "Elige el rango de años:",
-            min_value=int(min(years_present)),
-            max_value=int(max(years_present)),
-            value=(int(min(years_present)), int(max(years_present)))
-        )
-    else:
-        st.sidebar.warning("No se encontraron columnas de años para la precipitación.")
-        start_year, end_year = 1970, 2021
-    
-    years_to_analyze = [str(year) for year in range(start_year, end_year + 1)]
-    years_to_analyze_present = [year for year in years_to_analyze if year in selected_stations_df.columns]
-    
-    # --- Pestañas de la Aplicación ---
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "📊 Datos Tabulados",
-        "📈 Gráficos de Precipitación",
-        "🌎 Mapa de Estaciones",
-        "🎬 Animación de Lluvia"
-    ])
-
-    # --- Pestaña 1: Datos Tabulados ---
-    with tab1:
-        st.header("📊 Datos Tabulados de las Estaciones")
-        st.markdown("---")
-        if selected_stations_df.empty:
-            st.info("Por favor, selecciona al menos una estación en la barra lateral.")
+        # Eliminar filas con valores NaN en latitud/longitud
+        df.dropna(subset=['Latitud', 'Longitud'], inplace=True)
+        
+        # Verificar si el DataFrame está vacío después de la limpieza
+        if df.empty:
+            st.error("El DataFrame está vacío. Por favor, asegúrate de que tu archivo CSV contenga datos válidos en las columnas 'Nom_Est', 'Latitud' y 'Longitud'.")
         else:
-            # Info de la tabla 1: Info básica y datos por año
-            st.subheader("Información básica de las Estaciones Seleccionadas")
-            info_cols = ['Nom_Est', 'Id_estacion', 'municipio', 'vereda', 'Celda_XY']
-            cols_to_display = [col for col in info_cols + years_to_analyze_present if col in data_df.columns]
-            df_to_display = selected_stations_df[cols_to_display].set_index('Nom_Est')
+            # --- Configuración de pestañas ---
+            tab1, tab2, tab3, tab4 = st.tabs([
+                "📊 Datos Tabulados", 
+                "📈 Gráficos de Precipitación", 
+                "🌎 Mapa de Estaciones", 
+                "🎬 Animación de Lluvia"
+            ])
 
-            if not df_to_display.empty and years_to_analyze_present:
-                try:
-                    styled_df = df_to_display.style.background_gradient(cmap='RdYlBu_r', subset=years_to_analyze_present)
-                    st.dataframe(styled_df)
-                except Exception as e:
-                    st.error(f"Error al aplicar estilo de tabla: {e}. Mostrando tabla sin estilo.")
-                    st.dataframe(df_to_display)
-            else:
-                st.dataframe(df_to_display)
+            # --- Pestaña para opciones de filtrado ---
+            st.sidebar.header("⚙️ Opciones de Filtrado")
             
-            # Info de la tabla 2: Estadísticas por estación
-            st.subheader("Estadísticas de Precipitación por Estación")
-            stats_df = selected_stations_df[['Nom_Est', 'Id_estacion', 'municipio', 'vereda']].copy()
+            # Selectores por municipio y celda, ahora multiseleccionables
+            municipios = sorted(df['municipio'].unique())
+            selected_municipio = st.sidebar.multiselect("Elige uno o más municipios:", municipios)
+            
+            celdas = sorted(df['Celda_XY'].unique())
+            selected_celda = st.sidebar.multiselect("Elige una o más celdas:", celdas)
 
-            if years_to_analyze_present and not selected_stations_df.empty:
-                stats_df['Precipitación Máxima (mm)'] = selected_stations_df[years_to_analyze_present].max(axis=1).round(2)
-                stats_df['Año Máximo'] = selected_stations_df[years_to_analyze_present].idxmax(axis=1)
-                stats_df['Precipitación Mínima (mm)'] = selected_stations_df[years_to_analyze_present].min(axis=1).round(2)
-                stats_df['Año Mínimo'] = selected_stations_df[years_to_analyze_present].idxmin(axis=1)
-                stats_df['Precipitación Media (mm)'] = selected_stations_df[years_to_analyze_present].mean(axis=1).round(2)
-                stats_df['Desviación Estándar'] = selected_stations_df[years_to_analyze_present].std(axis=1).round(2)
-
-                df_melted_stats = selected_stations_df.melt(
-                    id_vars=['Nom_Est'],
-                    value_vars=years_to_analyze_present,
-                    var_name='Año',
-                    value_name='Precipitación'
+            # Filtrar el DataFrame según la selección de municipio y celda
+            filtered_df_by_loc = df.copy()
+            if selected_municipio:
+                filtered_df_by_loc = filtered_df_by_loc[filtered_df_by_loc['municipio'].isin(selected_municipio)]
+            if selected_celda:
+                filtered_df_by_loc = filtered_df_by_loc[filtered_df_by_loc['Celda_XY'].isin(selected_celda)]
+            
+            # Selección de estaciones, ordenadas alfabéticamente
+            all_stations = sorted(filtered_df_by_loc['Nom_Est'].unique())
+            
+            col1, col2 = st.sidebar.columns(2)
+            with col1:
+                select_all = st.checkbox("Seleccionar todas", value=False)
+            with col2:
+                clear_all = st.checkbox("Eliminar selección", value=False)
+            
+            selected_stations_list = []
+            if select_all:
+                selected_stations_list = all_stations
+            elif clear_all:
+                selected_stations_list = []
+            else:
+                selected_stations_list = st.sidebar.multiselect(
+                    "Elige las estaciones:",
+                    options=all_stations,
+                    default=[]
                 )
 
-                if not df_melted_stats.empty:
-                    summary_row = pd.DataFrame([{
-                        'Nom_Est': 'Todas las estaciones',
-                        'Id_estacion': '',
-                        'municipio': '',
-                        'vereda': '',
-                        'Precipitación Máxima (mm)': df_melted_stats['Precipitación'].max(),
-                        'Año Máximo': df_melted_stats.loc[df_melted_stats['Precipitación'].idxmax(), 'Año'],
-                        'Precipitación Mínima (mm)': df_melted_stats['Precipitación'].min(),
-                        'Año Mínimo': df_melted_stats.loc[df_melted_stats['Precipitación'].idxmin(), 'Año'],
-                        'Precipitación Media (mm)': df_melted_stats['Precipitación'].mean().round(2),
-                        'Desviación Estándar': df_melted_stats['Precipitación'].std().round(2)
-                    }])
-                    stats_df = pd.concat([stats_df, summary_row], ignore_index=True)
-                
-                st.dataframe(stats_df.set_index('Nom_Est'))
-            
-            # Info de la tabla 3: Estadísticas por celda
-            st.subheader("Estadísticas Agregadas por Celda")
-            if 'Celda_XY' in selected_stations_df.columns and not selected_stations_df.empty:
-                celda_stats_df = selected_stations_df.groupby('Celda_XY')[years_to_analyze_present].agg(
-                    Cant_est=('Nom_Est', 'count'),
-                    **{f'Lluvia Prom. {y}': (y, 'mean') for y in years_to_analyze_present}
-                ).reset_index().round(2)
-                st.dataframe(celda_stats_df.set_index('Celda_XY'))
-            else:
-                st.info("La columna 'Celda_XY' no se encontró o no hay datos para mostrar esta tabla.")
+            selected_stations_df = df[df['Nom_Est'].isin(selected_stations_list)]
 
-
-    # --- Pestaña 2: Gráficos de Precipitación ---
-    with tab2:
-        st.header("📈 Gráficos de Precipitación")
-        st.markdown("---")
-        if selected_stations_df.empty:
-            st.info("Por favor, selecciona al menos una estación en la barra lateral.")
-        elif not years_to_analyze_present:
-            st.info("El rango de años seleccionado no contiene datos para las estaciones seleccionadas. Por favor, ajusta el rango de años.")
-        else:
-            df_melted = selected_stations_df.melt(
-                id_vars=['Nom_Est'],
-                value_vars=years_to_analyze_present,
-                var_name='Año',
-                value_name='Precipitación'
+            # Deslizadores para años
+            start_year, end_year = st.sidebar.slider(
+                "Elige el rango de años:",
+                min_value=1970,
+                max_value=2021,
+                value=(1970, 2021)
             )
-            df_melted['Año'] = df_melted['Año'].astype(int)
-
-            # Controles para el eje vertical
-            st.subheader("Opciones de Eje Vertical (Y)")
-            axis_control = st.radio("Elige el control del eje Y:", ('Automático', 'Personalizado'))
-            y_range = None
-            if axis_control == 'Personalizado':
-                min_precip = df_melted['Precipitación'].min()
-                max_precip = df_melted['Precipitación'].max()
-                min_y = st.number_input("Valor mínimo del eje Y:", value=float(min_precip), format="%.2f")
-                max_y = st.number_input("Valor máximo del eje Y:", value=float(max_precip), format="%.2f")
-                if min_y >= max_y:
-                    st.warning("El valor mínimo debe ser menor que el valor máximo.")
+            
+            years_to_analyze = [str(year) for year in range(start_year, end_year + 1)]
+            
+            # Asegura que las columnas de años existan en el DataFrame antes de usarlas
+            years_to_analyze_present = [year for year in years_to_analyze if year in selected_stations_df.columns]
+            
+            # --- Pestaña para datos tabulados ---
+            with tab1:
+                st.header("📊 Datos Tabulados de las Estaciones")
+                st.markdown("---")
+                
+                if selected_stations_df.empty:
+                    st.info("Por favor, selecciona al menos una estación en la barra lateral.")
                 else:
-                    y_range = (min_y, max_y)
+                    st.subheader("Información básica de las Estaciones Seleccionadas")
+                    
+                    # Columnas adicionales del CSV
+                    info_cols = ['Nom_Est', 'Id_estacion', 'porc_datos', 'departamento', 'municipio', 'vereda', 'Celda_XY']
+                    
+                    cols_to_display = [col for col in info_cols + years_to_analyze_present if col in df.columns]
+                    df_to_display = selected_stations_df[cols_to_display].set_index('Nom_Est')
 
-            st.subheader("Precipitación Anual por Estación")
-            chart_type = st.radio("Elige el tipo de gráfico:", ('Líneas', 'Barras'))
-            y_scale = alt.Scale(domain=y_range) if y_range else alt.Scale()
-            if chart_type == 'Líneas':
-                chart = alt.Chart(df_melted).mark_line(point=True).encode(
-                    x=alt.X('Año:O', title='Año', axis=alt.Axis(format='d')),
-                    y=alt.Y('Precipitación:Q', title='Precipitación (mm)', scale=y_scale),
-                    color=alt.Color('Nom_Est', title='Estación'),
-                    tooltip=['Nom_Est', 'Año', 'Precipitación']
-                ).interactive()
-            else:
-                chart = alt.Chart(df_melted).mark_bar().encode(
-                    x=alt.X('Año:O', title='Año', axis=alt.Axis(format='d')),
-                    y=alt.Y('Precipitación:Q', title='Precipitación (mm)', scale=y_scale),
-                    color=alt.Color('Nom_Est', title='Estación'),
-                    tooltip=['Nom_Est', 'Año', 'Precipitación']
-                ).interactive()
-            st.altair_chart(chart, use_container_width=True)
+                    # Aplicar escala de colores a los datos de precipitación
+                    if not df_to_display.empty and years_to_analyze_present:
+                        try:
+                            styled_df = df_to_display.style.background_gradient(cmap='RdYlBu_r', subset=years_to_analyze_present)
+                            st.dataframe(styled_df)
+                        except Exception as e:
+                            st.error(f"Error al aplicar estilo de tabla: {e}. Mostrando tabla sin estilo.")
+                            st.dataframe(df_to_display)
+                    else:
+                        st.dataframe(df_to_display)
 
-            st.subheader("Comparación de Precipitación entre Estaciones")
-            compare_year = st.selectbox(
-                "Selecciona el año para comparar:",
-                options=years_to_analyze_present
-            )
-            sort_order = st.radio("Ordenar por:", ('Mayor a menor', 'Menor a mayor'))
+                    # Nueva tabla con estadísticas
+                    st.subheader("Estadísticas de Precipitación")
+                    
+                    # Prepara el DataFrame para estadísticas
+                    stats_df = selected_stations_df[['Nom_Est', 'Id_estacion', 'municipio', 'vereda']].copy()
+                    
+                    if years_to_analyze_present and not selected_stations_df.empty:
+                        # Calcular max, min, mean, std
+                        stats_df['Precipitación Máxima (mm)'] = selected_stations_df[years_to_analyze_present].max(axis=1).round(2)
+                        stats_df['Año Máximo'] = selected_stations_df[years_to_analyze_present].idxmax(axis=1)
+                        stats_df['Precipitación Mínima (mm)'] = selected_stations_df[years_to_analyze_present].min(axis=1).round(2)
+                        stats_df['Año Mínimo'] = selected_stations_df[years_to_analyze_present].idxmin(axis=1)
+                        stats_df['Precipitación Media (mm)'] = selected_stations_df[years_to_analyze_present].mean(axis=1).round(2)
+                        stats_df['Desviación Estándar'] = selected_stations_df[years_to_analyze_present].std(axis=1).round(2)
 
-            df_compare = selected_stations_df[['Nom_Est', compare_year]].copy()
-            df_compare = df_compare.rename(columns={compare_year: 'Precipitación'})
-            if sort_order == 'Mayor a menor':
-                df_compare = df_compare.sort_values(by='Precipitación', ascending=False)
-            else:
-                df_compare = df_compare.sort_values(by='Precipitación', ascending=True)
-            
-            fig_bar = px.bar(
-                df_compare,
-                x='Nom_Est',
-                y='Precipitación',
-                title=f'Precipitación en el año {compare_year}',
-                labels={'Nom_Est': 'Estación', 'Precipitación': 'Precipitación (mm)'},
-                range_y=y_range
-            )
-            st.plotly_chart(fig_bar, use_container_width=True)
-
-            st.subheader("Análisis de Distribución (Box Plot)")
-            if not df_melted.empty:
-                fig_box = px.box(
-                    df_melted,
-                    x='Nom_Est',
-                    y='Precipitación',
-                    title='Distribución de Precipitación por Estación',
-                    labels={'Nom_Est': 'Estación', 'Precipitación': 'Precipitación (mm)'},
-                    range_y=y_range
-                )
-                st.plotly_chart(fig_box, use_container_width=True)
-            else:
-                st.info("No hay datos para generar el gráfico de caja.")
-
-    # --- Pestaña 3: Mapa ---
-    with tab3:
-        st.header("🌎 Mapa de Ubicación de las Estaciones")
-        st.markdown("---")
-
-        if selected_stations_df.empty:
-            st.info("Por favor, selecciona al menos una estación en la barra lateral.")
-        else:
-            col_map1, col_map2 = st.columns(2)
-            with col_map1:
-                if st.button("Centrar en Colombia"):
-                    st.session_state.map_center_type = 'colombia'
-            with col_map2:
-                if st.button("Centrar en Estaciones Seleccionadas"):
-                    st.session_state.map_center_type = 'stations'
-
-            if 'map_center_type' not in st.session_state:
-                st.session_state.map_center_type = 'stations'
-
-            map_center = [4.5709, -74.2973]
-            zoom_level = 6
-
-            is_gdf = isinstance(selected_stations_df, gpd.GeoDataFrame)
-            
-            if st.session_state.map_center_type == 'stations' and not selected_stations_df.empty:
-                if is_gdf and not selected_stations_df.geometry.is_empty.all():
-                    map_center = [selected_stations_df.geometry.centroid.y.mean(), selected_stations_df.geometry.centroid.x.mean()]
-                    zoom_level = 8
-                elif 'Latitud' in selected_stations_df.columns and 'Longitud' in selected_stations_df.columns:
-                    map_center = [selected_stations_df['Latitud'].mean(), selected_stations_df['Longitud'].mean()]
-                    zoom_level = 8
-            
-            m = folium.Map(location=map_center, zoom_start=zoom_level, tiles="CartoDB positron")
-
-            if is_gdf and not selected_stations_df.geometry.is_empty.all():
-                if st.session_state.map_center_type == 'stations' and not selected_stations_df.empty:
-                    bounds = [[selected_stations_df.total_bounds[1], selected_stations_df.total_bounds[0]],
-                              [selected_stations_df.total_bounds[3], selected_stations_df.total_bounds[2]]]
-                    m.fit_bounds(bounds)
-                
-                folium.GeoJson(
-                    selected_stations_df.to_json(),
-                    name='Áreas del Shapefile',
-                    tooltip=folium.features.GeoJsonTooltip(fields=['Nom_Est', 'municipio', 'vereda'],
-                                                            aliases=['Estación', 'Municipio', 'Vereda'],
-                                                            style=("background-color: white; color: #333333; font-family: sans-serif; font-size: 12px; padding: 10px;"))
-                ).add_to(m)
-
-            if 'Latitud' in selected_stations_df.columns and 'Longitud' in selected_stations_df.columns:
-                for idx, row in selected_stations_df.iterrows():
-                    if pd.notna(row['Latitud']) and pd.notna(row['Longitud']):
-                        pop_up_text = (
-                            f"<b>Estación:</b> {row.get('Nom_Est', 'N/A')}<br>"
-                            f"<b>Municipio:</b> {row.get('municipio', 'N/A')}<br>"
-                            f"<b>Vereda:</b> {row.get('vereda', 'N/A')}"
+                        # Agregar una fila de resumen para todas las estaciones
+                        df_melted_stats = selected_stations_df.melt(
+                            id_vars=['Nom_Est'],
+                            value_vars=years_to_analyze_present,
+                            var_name='Año',
+                            value_name='Precipitación'
                         )
-                        tooltip_text = f"Estación: {row.get('Nom_Est', 'N/A')}"
-                        folium.CircleMarker(
-                            location=[row['Latitud'], row['Longitud']],
-                            radius=6,
-                            popup=pop_up_text,
-                            tooltip=tooltip_text,
-                            color='blue',
-                            fill=True,
-                            fill_color='blue',
-                            fill_opacity=0.6
-                        ).add_to(m)
-            else:
-                st.info("No hay datos de latitud y longitud disponibles para mostrar marcadores en el mapa.")
-            
-            folium_static(m)
+                        
+                        if not df_melted_stats.empty:
+                            max_precip = df_melted_stats['Precipitación'].max()
+                            min_precip = df_melted_stats['Precipitación'].min()
+                            
+                            try:
+                                max_year = df_melted_stats[df_melted_stats['Precipitación'] == max_precip]['Año'].iloc[0]
+                            except IndexError:
+                                max_year = 'N/A'
+                            
+                            try:
+                                min_year = df_melted_stats[df_melted_stats['Precipitación'] == min_precip]['Año'].iloc[0]
+                            except IndexError:
+                                min_year = 'N/A'
+                            
+                            summary_row = pd.DataFrame([{
+                                'Nom_Est': 'Todas las estaciones',
+                                'Id_estacion': '',
+                                'municipio': '',
+                                'vereda': '',
+                                'Precipitación Máxima (mm)': max_precip,
+                                'Año Máximo': max_year,
+                                'Precipitación Mínima (mm)': min_precip,
+                                'Año Mínimo': min_year,
+                                'Precipitación Media (mm)': df_melted_stats['Precipitación'].mean().round(2),
+                                'Desviación Estándar': df_melted_stats['Precipitación'].std().round(2)
+                            }])
+                            stats_df = pd.concat([stats_df, summary_row], ignore_index=True)
 
-    # --- Pestaña 4: Animaciones ---
-    with tab4:
-        st.header("🎬 Animación de Precipitación Anual")
-        st.markdown("---")
-        if selected_stations_df.empty:
-            st.info("Por favor, selecciona al menos una estación en la barra lateral.")
-        elif not years_to_analyze_present:
-            st.info("El rango de años seleccionado no contiene datos de precipitación para las estaciones seleccionadas. Por favor, ajusta el rango de años.")
-        else:
-            animation_type = st.radio("Selecciona el tipo de animación:", ('Barras Animadas', 'Mapa Animado'))
-            
-            if animation_type == 'Barras Animadas':
-                df_melted_anim = selected_stations_df.melt(
-                    id_vars=['Nom_Est'],
-                    value_vars=years_to_analyze_present,
-                    var_name='Año',
-                    value_name='Precipitación'
-                )
-                df_melted_anim['Año'] = df_melted_anim['Año'].astype(str)
+                    st.dataframe(stats_df.set_index('Nom_Est'))
+
+            # --- Pestaña para gráficos ---
+            with tab2:
+                st.header("📈 Gráficos de Precipitación")
+                st.markdown("---")
                 
-                fig = px.bar(
-                    df_melted_anim,
-                    x='Nom_Est',
-                    y='Precipitación',
-                    animation_frame='Año',
-                    color='Nom_Est',
-                    title='Precipitación Anual por Estación',
-                    labels={'Nom_Est': 'Estación', 'Precipitación': 'Precipitación (mm)'},
-                    range_y=y_range
-                )
-                st.plotly_chart(fig, use_container_width=True)
-            else: # Mapa Animado
-                if 'Latitud' in selected_stations_df.columns and 'Longitud' in selected_stations_df.columns:
-                    df_melted_map = selected_stations_df.melt(
-                        id_vars=['Nom_Est', 'Latitud', 'Longitud'],
+                if selected_stations_df.empty:
+                    st.info("Por favor, selecciona al menos una estación en la barra lateral.")
+                else:
+                    # Controles para el eje vertical
+                    st.subheader("Opciones de Eje Vertical (Y)")
+                    axis_control = st.radio("Elige el control del eje Y:", ('Automático', 'Personalizado'))
+                    y_range = None
+                    if axis_control == 'Personalizado':
+                        df_melted_temp = selected_stations_df.melt(
+                            id_vars=['Nom_Est'],
+                            value_vars=years_to_analyze_present,
+                            var_name='Año',
+                            value_name='Precipitación'
+                        )
+                        min_precip = df_melted_temp['Precipitación'].min()
+                        max_precip = df_melted_temp['Precipitación'].max()
+                        
+                        min_y = st.number_input("Valor mínimo del eje Y:", value=float(min_precip), format="%.2f")
+                        max_y = st.number_input("Valor máximo del eje Y:", value=float(max_precip), format="%.2f")
+                        if min_y >= max_y:
+                            st.warning("El valor mínimo debe ser menor que el valor máximo.")
+                        else:
+                            y_range = (min_y, max_y)
+
+                    st.subheader("Precipitación Anual por Estación")
+                    chart_type = st.radio("Elige el tipo de gráfico:", ('Líneas', 'Barras'))
+                    
+                    df_melted = selected_stations_df.melt(
+                        id_vars=['Nom_Est'],
                         value_vars=years_to_analyze_present,
                         var_name='Año',
                         value_name='Precipitación'
                     )
-                    fig = px.scatter_mapbox(
-                        df_melted_map,
-                        lat="Latitud",
-                        lon="Longitud",
-                        hover_name="Nom_Est",
-                        hover_data={"Precipitación": True, "Año": True, "Latitud": False, "Longitud": False},
-                        color="Precipitación",
-                        size="Precipitación",
-                        color_continuous_scale=px.colors.sequential.Bluyl,
-                        animation_frame="Año",
-                        mapbox_style="open-street-map",
-                        zoom=7,
-                        title="Precipitación Anual Animada en el Mapa",
-                        range_color=y_range
+                    df_melted['Año'] = df_melted['Año'].astype(int)
+
+                    # Aplicar el rango del eje Y si es personalizado
+                    y_scale = alt.Scale(domain=y_range) if y_range else alt.Scale()
+
+                    if chart_type == 'Líneas':
+                        chart = alt.Chart(df_melted).mark_line(point=True).encode(
+                            x=alt.X('Año:O', title='Año', axis=alt.Axis(format='d')),
+                            y=alt.Y('Precipitación:Q', title='Precipitación (mm)', scale=y_scale),
+                            color=alt.Color('Nom_Est', title='Estación'),
+                            tooltip=['Nom_Est', 'Año', 'Precipitación']
+                        ).interactive()
+                    else:
+                        chart = alt.Chart(df_melted).mark_bar().encode(
+                            x=alt.X('Año:O', title='Año', axis=alt.Axis(format='d')),
+                            y=alt.Y('Precipitación:Q', title='Precipitación (mm)', scale=y_scale),
+                            color=alt.Color('Nom_Est', title='Estación'),
+                            tooltip=['Nom_Est', 'Año', 'Precipitación']
+                        ).interactive()
+                    
+                    st.altair_chart(chart, use_container_width=True)
+
+                    st.subheader("Comparación de Precipitación entre Estaciones")
+                    compare_year = st.selectbox(
+                        "Selecciona el año para comparar:", 
+                        options=years_to_analyze_present
                     )
-                    fig.update_layout(
-                        mapbox_style="open-street-map",
-                        mapbox_zoom=7,
-                        mapbox_center={"lat": df_melted_map['Latitud'].mean(), "lon": df_melted_map['Longitud'].mean()},
+                    
+                    sort_order = st.radio("Ordenar por:", ('Mayor a menor', 'Menor a mayor'))
+                    
+                    df_compare = selected_stations_df[['Nom_Est', compare_year]].copy()
+                    df_compare = df_compare.rename(columns={compare_year: 'Precipitación'})
+                    
+                    if sort_order == 'Mayor a menor':
+                        df_compare = df_compare.sort_values(by='Precipitación', ascending=False)
+                    else:
+                        df_compare = df_compare.sort_values(by='Precipitación', ascending=True)
+
+                    # Aplicar el rango del eje Y al gráfico de barras de Plotly
+                    fig_bar = px.bar(
+                        df_compare,
+                        x='Nom_Est',
+                        y='Precipitación',
+                        title=f'Precipitación en el año {compare_year}',
+                        labels={'Nom_Est': 'Estación', 'Precipitación': 'Precipitación (mm)'},
+                        range_y=y_range
                     )
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig_bar, use_container_width=True)
+
+            # --- Pestaña para el mapa ---
+            with tab3:
+                st.header("🌎 Mapa de Ubicación de las Estaciones")
+                st.markdown("---")
+                
+                if gdf is None:
+                    st.info("Por favor, carga el archivo shapefile en formato .zip en la sección 'Cargar Datos'.")
+                elif selected_stations_df.empty:
+                    st.info("Por favor, selecciona al menos una estación en la barra lateral.")
                 else:
-                    st.info("No se encontraron datos de latitud y longitud para crear el mapa animado. Asegúrate de que las columnas 'Latitud' y 'Longitud' existan en el archivo CSV.")
-else:
-    st.info("Por favor, sube los archivos .csv y .zip en la sección 'Cargar Datos' para comenzar a analizar la información.")
+                    st.write("El mapa se ajusta automáticamente para mostrar todas las estaciones seleccionadas. Si el mapa parece muy alejado, es porque las estaciones están muy distantes entre sí. Puedes usar los botones de abajo para centrar la vista.")
+
+                    # Botones para centrar el mapa
+                    col_map1, col_map2, col_map3 = st.columns(3)
+                    with col_map1:
+                        if st.button("Centrar en Colombia"):
+                            st.session_state.reset_map_colombia = True
+                            st.session_state.reset_map_antioquia = False
+                            st.session_state.center_on_stations = False
+                    with col_map2:
+                        if st.button("Centrar en Antioquia"):
+                            st.session_state.reset_map_antioquia = True
+                            st.session_state.reset_map_colombia = False
+                            st.session_state.center_on_stations = False
+                    with col_map3:
+                        # Nuevo botón para centrar en las estaciones seleccionadas
+                        if st.button("Centrar en Estaciones Seleccionadas"):
+                            st.session_state.center_on_stations = True
+                            st.session_state.reset_map_colombia = False
+                            st.session_state.reset_map_antioquia = False
+
+                    # Crear el mapa de Folium
+                    if 'reset_map_colombia' in st.session_state and st.session_state.reset_map_colombia:
+                        map_center = [4.5709, -74.2973] # Centro de Colombia
+                        m = folium.Map(location=map_center, zoom_start=6, tiles="CartoDB positron")
+                        st.session_state.reset_map_colombia = False
+                    elif 'reset_map_antioquia' in st.session_state and st.session_state.reset_map_antioquia:
+                        # Coordenadas aproximadas del centro de Antioquia
+                        map_center = [6.2442, -75.5812]
+                        m = folium.Map(location=map_center, zoom_start=8, tiles="CartoDB positron")
+                        st.session_state.reset_map_antioquia = False
+                    elif 'center_on_stations' in st.session_state and st.session_state.center_on_stations:
+                        gdf_selected = gdf[gdf['Nom_Est'].isin(selected_stations_list)]
+                        if not gdf_selected.empty:
+                            map_center = [gdf_selected.geometry.centroid.y.mean(), gdf_selected.geometry.centroid.x.mean()]
+                            m = folium.Map(location=map_center, zoom_start=8, tiles="CartoDB positron")
+                            bounds = [[gdf_selected.total_bounds[1], gdf_selected.total_bounds[0]], 
+                                      [gdf_selected.total_bounds[3], gdf_selected.total_bounds[2]]]
+                            m.fit_bounds(bounds)
+                        else:
+                            map_center = [4.5709, -74.2973] # Fallback to Colombia
+                            m = folium.Map(location=map_center, zoom_start=6, tiles="CartoDB positron")
+                        st.session_state.center_on_stations = False
+                    else:
+                        gdf_selected = gdf[gdf['Nom_Est'].isin(selected_stations_list)]
+                        
+                        if not gdf_selected.empty:
+                            map_center = [gdf_selected.geometry.centroid.y.mean(), gdf_selected.geometry.centroid.x.mean()]
+                            m = folium.Map(location=map_center, zoom_start=8, tiles="CartoDB positron")
+                            
+                            # Ajustar el encuadre del mapa a las estaciones seleccionadas
+                            bounds = [[gdf_selected.total_bounds[1], gdf_selected.total_bounds[0]], 
+                                      [gdf_selected.total_bounds[3], gdf_selected.total_bounds[2]]]
+                            m.fit_bounds(bounds)
+                        else:
+                            map_center = [4.5709, -74.2973]
+                            m = folium.Map(location=map_center, zoom_start=6, tiles="CartoDB positron")
+                    
+                    gdf_selected = gdf[gdf['Nom_Est'].isin(selected_stations_list)]
+                    gdf_selected = gdf_selected.merge(stats_df, on='Nom_Est', how='left')
+
+                    if not gdf_selected.empty:
+                        # Añadir las áreas (polígonos) del shapefile al mapa
+                        folium.GeoJson(
+                            gdf_selected.to_json(),
+                            name='Áreas del Shapefile',
+                            tooltip=folium.features.GeoJsonTooltip(fields=['Nom_Est', 'municipio', 'vereda', 'Precipitación Media (mm)'],
+                                                                    aliases=['Estación', 'Municipio', 'Vereda', 'Precipitación Media'],
+                                                                    style=("background-color: white; color: #333333; font-family: sans-serif; font-size: 12px; padding: 10px;"))
+                        ).add_to(m)
+
+                        # Añadir los marcadores circulares para las estaciones
+                        for idx, row in gdf_selected.iterrows():
+                            if pd.notna(row['Latitud']) and pd.notna(row['Longitud']):
+                                pop_up_text = (
+                                    f"<b>Estación:</b> {row['Nom_Est']}<br>"
+                                    f"<b>Municipio:</b> {row['municipio']}<br>"
+                                    f"<b>Vereda:</b> {row['vereda']}<br>"
+                                    f"<b>Precipitación Media:</b> {row['Precipitación Media (mm)']:.2f} mm"
+                                )
+                                tooltip_text = f"Estación: {row['Nom_Est']}"
+
+                                icon_size = 12
+
+                                folium.CircleMarker(
+                                    location=[row['Latitud'], row['Longitud']],
+                                    radius=icon_size / 2,
+                                    popup=pop_up_text,
+                                    tooltip=tooltip_text,
+                                    color='blue',
+                                    fill=True,
+                                    fill_color='blue',
+                                    fill_opacity=0.6
+                                ).add_to(m)
+
+                        folium_static(m)
+
+            # --- Pestaña para animaciones ---
+            with tab4:
+                st.header("🎬 Animación de Precipitación Anual")
+                st.markdown("---")
+                
+                if selected_stations_df.empty:
+                    st.info("Por favor, selecciona al menos una estación en la barra lateral.")
+                else:
+                    animation_type = st.radio("Selecciona el tipo de animación:", ('Barras Animadas', 'Mapa Animado'))
+
+                    if animation_type == 'Barras Animadas':
+                        if years_to_analyze_present:
+                            df_melted_anim = selected_stations_df.melt(
+                                id_vars=['Nom_Est'],
+                                value_vars=years_to_analyze_present,
+                                var_name='Año',
+                                value_name='Precipitación'
+                            )
+                            df_melted_anim['Año'] = df_melted_anim['Año'].astype(str)
+
+                            # Aplicar el rango del eje Y si es personalizado a la animación de barras
+                            fig = px.bar(
+                                df_melted_anim,
+                                x='Nom_Est',
+                                y='Precipitación',
+                                animation_frame='Año',
+                                color='Nom_Est',
+                                title='Precipitación Anual por Estación',
+                                labels={'Nom_Est': 'Estación', 'Precipitación': 'Precipitación (mm)'},
+                                range_y=y_range
+                            )
+                            st.plotly_chart(fig, use_container_width=True)
+                        else:
+                            st.info("El rango de años seleccionado no contiene datos de precipitación para las estaciones seleccionadas. Por favor, ajusta el rango de años.")
+                    else: # Mapa Animado
+                        if years_to_analyze_present:
+                            df_melted_map = selected_stations_df.melt(
+                                id_vars=['Nom_Est', 'Latitud', 'Longitud'],
+                                value_vars=years_to_analyze_present,
+                                var_name='Año',
+                                value_name='Precipitación'
+                            )
+                            
+                            # Aplicar el rango de color del eje Y si es personalizado a la animación del mapa
+                            fig = px.scatter_mapbox(
+                                df_melted_map,
+                                lat="Latitud",
+                                lon="Longitud",
+                                hover_name="Nom_Est",
+                                hover_data={"Precipitación": True, "Año": True, "Latitud": False, "Longitud": False},
+                                color="Precipitación",
+                                size="Precipitación",
+                                color_continuous_scale=px.colors.sequential.Bluyl,
+                                animation_frame="Año",
+                                mapbox_style="open-street-map",
+                                zoom=7,
+                                title="Precipitación Anual Animada en el Mapa",
+                                range_color=y_range
+                            )
+                            fig.update_layout(
+                                mapbox_style="open-street-map",
+                                mapbox_zoom=7,
+                                mapbox_center={"lat": df_melted_map['Latitud'].mean(), "lon": df_melted_map['Longitud'].mean()},
+                            )
+                            fig.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
+                            st.plotly_chart(fig, use_container_width=True)
+                        else:
+                            st.info("El rango de años seleccionado no contiene datos de precipitación para las estaciones seleccionadas. Por favor, ajusta el rango de años.")
