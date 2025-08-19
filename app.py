@@ -30,10 +30,6 @@ def load_all_data(uploaded_file_csv, uploaded_zip):
         try:
             df = pd.read_csv(uploaded_file_csv, sep=';')
             df = df.rename(columns={'Mpio': 'municipio', 'NOMBRE_VER': 'vereda'})
-            required_csv_cols = ['Nom_Est', 'Latitud', 'Longitud', 'municipio', 'vereda']
-            if not all(col in df.columns for col in required_csv_cols):
-                st.error(f"Error: El archivo CSV no contiene todas las columnas requeridas: {', '.join(required_csv_cols)}")
-                return None
             df['Latitud'] = pd.to_numeric(df['Latitud'], errors='coerce')
             df['Longitud'] = pd.to_numeric(df['Longitud'], errors='coerce')
             df.dropna(subset=['Latitud', 'Longitud'], inplace=True)
@@ -93,26 +89,25 @@ if data_df is not None and not data_df.empty:
     st.sidebar.markdown("---")
 
     # Selectores por municipio y celda
-    if 'municipio' in data_df.columns:
-        municipios = sorted(data_df['municipio'].dropna().unique())
+    filtered_df_by_loc = data_df.copy()
+    
+    if 'municipio' in filtered_df_by_loc.columns:
+        municipios = sorted(filtered_df_by_loc['municipio'].dropna().unique())
         selected_municipio = st.sidebar.multiselect("Elige uno o más municipios:", municipios)
+        if selected_municipio:
+            filtered_df_by_loc = filtered_df_by_loc[filtered_df_by_loc['municipio'].isin(selected_municipio)]
     else:
         st.sidebar.warning("Columna 'municipio' no encontrada. La aplicación podría funcionar de forma limitada.")
         selected_municipio = []
 
-    filtered_df_by_loc = data_df.copy()
-    if selected_municipio:
-        filtered_df_by_loc = filtered_df_by_loc[filtered_df_by_loc['municipio'].isin(selected_municipio)]
-    
     if 'Celda_XY' in filtered_df_by_loc.columns:
         celdas_by_municipio = sorted(filtered_df_by_loc['Celda_XY'].dropna().unique())
         selected_celda = st.sidebar.multiselect("Elige una o más celdas:", celdas_by_municipio)
+        if selected_celda:
+            filtered_df_by_loc = filtered_df_by_loc[filtered_df_by_loc['Celda_XY'].isin(selected_celda)]
     else:
         st.sidebar.warning("Columna 'Celda_XY' no encontrada. La aplicación podría funcionar de forma limitada.")
         selected_celda = []
-
-    if selected_celda:
-        filtered_df_by_loc = filtered_df_by_loc[filtered_df_by_loc['Celda_XY'].isin(selected_celda)]
 
     all_stations = sorted(filtered_df_by_loc['Nom_Est'].dropna().unique())
 
@@ -126,9 +121,14 @@ if data_df is not None and not data_df.empty:
             if st.button("Limpiar selección"):
                 st.session_state.selected_stations = []
 
+        # Asegurar que el estado de las estaciones seleccionadas sea un subconjunto válido
         if 'selected_stations' not in st.session_state:
             st.session_state.selected_stations = []
         
+        valid_selected_stations = [s for s in st.session_state.selected_stations if s in all_stations]
+        if set(valid_selected_stations) != set(st.session_state.selected_stations):
+            st.session_state.selected_stations = valid_selected_stations
+
         selected_stations_list = st.multiselect(
             "Estaciones disponibles:",
             options=all_stations,
