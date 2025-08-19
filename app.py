@@ -145,7 +145,10 @@ if data_df is not None and not data_df.empty:
         )
         st.session_state.selected_stations = selected_stations_list
 
+    # Filtrar el DataFrame y convertir a GeoDataFrame si es necesario
     selected_stations_df = data_df[data_df['Nom_Est'].isin(selected_stations_list)]
+    if 'geometry' in selected_stations_df.columns and isinstance(selected_stations_df, pd.DataFrame):
+        selected_stations_df = gpd.GeoDataFrame(selected_stations_df, geometry='geometry', crs="EPSG:4326")
 
     years_present = [col for col in data_df.columns if str(col).isdigit()]
     if years_present:
@@ -338,8 +341,10 @@ if data_df is not None and not data_df.empty:
             map_center = [4.5709, -74.2973]
             zoom_level = 6
 
+            is_gdf = isinstance(selected_stations_df, gpd.GeoDataFrame)
+            
             if st.session_state.map_center_type == 'stations' and not selected_stations_df.empty:
-                if 'geometry' in selected_stations_df.columns and not selected_stations_df.geometry.is_empty.all():
+                if is_gdf and not selected_stations_df.geometry.is_empty.all():
                     map_center = [selected_stations_df.geometry.centroid.y.mean(), selected_stations_df.geometry.centroid.x.mean()]
                     zoom_level = 8
                 elif 'Latitud' in selected_stations_df.columns:
@@ -348,7 +353,7 @@ if data_df is not None and not data_df.empty:
             
             m = folium.Map(location=map_center, zoom_start=zoom_level, tiles="CartoDB positron")
 
-            if 'geometry' in selected_stations_df.columns and not selected_stations_df.geometry.is_empty.all():
+            if is_gdf and not selected_stations_df.geometry.is_empty.all():
                 if st.session_state.map_center_type == 'stations' and not selected_stations_df.empty:
                     bounds = [[selected_stations_df.total_bounds[1], selected_stations_df.total_bounds[0]],
                               [selected_stations_df.total_bounds[3], selected_stations_df.total_bounds[2]]]
