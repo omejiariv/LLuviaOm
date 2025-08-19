@@ -38,7 +38,7 @@ with st.expander("📂 Cargar Datos"):
             # Renombrar columnas con los nombres correctos del usuario
             df = df.rename(columns={'Mpio': 'municipio', 'NOMBRE_VER': 'vereda'})
             st.warning("Se ha cargado el archivo CSV usando ';' como separador.")
-        except (FileNotFound, pd.errors.ParserError):
+        except (FileNotFoundError, pd.errors.ParserError):
             st.warning("No se pudo leer 'mapaCV.csv'. Por favor, cárgalo manualmente o revisa su formato.")
             df = None
 
@@ -315,24 +315,22 @@ if df is not None:
                     )
                     st.plotly_chart(fig_bar, use_container_width=True)
 
-                   st.plotly_chart(fig_bar, use_container_width=True)
+                    # Nuevo gráfico de caja (Boxplot)
+                    st.subheader("Análisis de Distribución (Box Plot)")
+                    if not df_melted.empty:
+                        fig_box = px.box(
+                            df_melted,
+                            x='Nom_Est',
+                            y='Precipitación',
+                            title='Distribución de Precipitación por Estación',
+                            labels={'Nom_Est': 'Estación', 'Precipitación': 'Precipitación (mm)'},
+                            range_y=y_range
+                        )
+                        st.plotly_chart(fig_box, use_container_width=True)
+                    else:
+                        st.info("No hay datos para generar el gráfico de caja.")
 
-            # Nuevo gráfico de caja (Boxplot)
-            st.subheader("Análisis de Distribución (Box Plot)")
-            if not df_melted.empty:
-                fig_box = px.box(
-                    df_melted,
-                    x='Nom_Est',
-                    y='Precipitación',
-                    title='Distribución de Precipitación por Estación',
-                    labels={'Nom_Est': 'Estación', 'Precipitación': 'Precipitación (mm)'},
-                    range_y=y_range
-                )
-                st.plotly_chart(fig_box, use_container_width=True)
-            else:
-                st.info("No hay datos para generar el gráfico de caja.")
-
-                # --- Pestaña para el mapa ---
+            # --- Pestaña para el mapa ---
             with tab3:
                 st.header("🌎 Mapa de Ubicación de las Estaciones")
                 st.markdown("---")
@@ -507,5 +505,3 @@ if df is not None:
                             st.plotly_chart(fig, use_container_width=True)
                         else:
                             st.info("El rango de años seleccionado no contiene datos de precipitación para las estaciones seleccionadas. Por favor, ajusta el rango de años.")
-
-
