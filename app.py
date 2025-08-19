@@ -299,17 +299,30 @@ if df is not None:
                 elif selected_stations_df.empty:
                     st.info("Por favor, selecciona al menos una estación en la barra lateral.")
                 else:
-                    st.write("El mapa se ajusta automáticamente para mostrar todas las estaciones seleccionadas. Si el mapa parece muy alejado, es porque las estaciones están muy distantes entre sí. Puedes usar el botón de abajo para centrar la vista.")
+                    st.write("El mapa se ajusta automáticamente para mostrar todas las estaciones seleccionadas. Si el mapa parece muy alejado, es porque las estaciones están muy distantes entre sí. Puedes usar los botones de abajo para centrar la vista.")
 
-                    # Botón para resetear la vista del mapa
-                    if st.button("Centrar Mapa en Colombia"):
-                        st.session_state.reset_map = True
+                    # Botones para centrar el mapa
+                    col_map1, col_map2 = st.columns(2)
+                    with col_map1:
+                        if st.button("Centrar Mapa en Colombia"):
+                            st.session_state.reset_map = True
+                            st.session_state.reset_map_antioquia = False
+                    with col_map2:
+                        # Nuevo botón para centrar en Antioquia
+                        if st.button("Centrar en Antioquia"):
+                            st.session_state.reset_map_antioquia = True
+                            st.session_state.reset_map = False
 
                     # Crear el mapa de Folium
                     if 'reset_map' in st.session_state and st.session_state.reset_map:
                         map_center = [4.5709, -74.2973] # Centro de Colombia
                         m = folium.Map(location=map_center, zoom_start=6, tiles="CartoDB positron")
                         st.session_state.reset_map = False
+                    elif 'reset_map_antioquia' in st.session_state and st.session_state.reset_map_antioquia:
+                        # Coordenadas aproximadas del centro de Antioquia
+                        map_center = [6.2442, -75.5812]
+                        m = folium.Map(location=map_center, zoom_start=8, tiles="CartoDB positron")
+                        st.session_state.reset_map_antioquia = False
                     else:
                         gdf_selected = gdf[gdf['Nom_Est'].isin(selected_stations_list)]
                         
@@ -415,12 +428,12 @@ if df is not None:
                                 size="Precipitación",
                                 color_continuous_scale=px.colors.sequential.Bluyl,
                                 animation_frame="Año",
-                                mapbox_style="stamen-terrain", # Cambiado a un estilo más confiable
+                                mapbox_style="open-street-map", # Se cambió el estilo del mapa para mayor confiabilidad
                                 zoom=7,
                                 title="Precipitación Anual Animada en el Mapa"
                             )
                             fig.update_layout(
-                                mapbox_style="stamen-terrain", # Cambiado a un estilo más confiable
+                                mapbox_style="open-street-map", # Se cambió el estilo del mapa para mayor confiabilidad
                                 mapbox_zoom=7,
                                 mapbox_center={"lat": df_melted_map['Latitud'].mean(), "lon": df_melted_map['Longitud'].mean()},
                             )
