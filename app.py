@@ -147,7 +147,7 @@ if data_df is not None and not data_df.empty:
 
     # Filtrar el DataFrame y convertir a GeoDataFrame si es necesario
     selected_stations_df = data_df[data_df['Nom_Est'].isin(selected_stations_list)]
-    if 'geometry' in selected_stations_df.columns and isinstance(selected_stations_df, pd.DataFrame):
+    if 'geometry' in selected_stations_df.columns and not isinstance(selected_stations_df, gpd.GeoDataFrame):
         selected_stations_df = gpd.GeoDataFrame(selected_stations_df, geometry='geometry', crs="EPSG:4326")
 
     years_present = [col for col in data_df.columns if str(col).isdigit()]
@@ -347,7 +347,7 @@ if data_df is not None and not data_df.empty:
                 if is_gdf and not selected_stations_df.geometry.is_empty.all():
                     map_center = [selected_stations_df.geometry.centroid.y.mean(), selected_stations_df.geometry.centroid.x.mean()]
                     zoom_level = 8
-                elif 'Latitud' in selected_stations_df.columns:
+                elif 'Latitud' in selected_stations_df.columns and 'Longitud' in selected_stations_df.columns:
                     map_center = [selected_stations_df['Latitud'].mean(), selected_stations_df['Longitud'].mean()]
                     zoom_level = 8
             
@@ -369,24 +369,28 @@ if data_df is not None and not data_df.empty:
                 ).add_to(m)
 
             # Agregar marcadores para cada estación
-            for idx, row in selected_stations_df.iterrows():
-                if pd.notna(row['Latitud']) and pd.notna(row['Longitud']):
-                    pop_up_text = (
-                        f"<b>Estación:</b> {row.get('Nom_Est', 'N/A')}<br>"
-                        f"<b>Municipio:</b> {row.get('municipio', 'N/A')}<br>"
-                        f"<b>Vereda:</b> {row.get('vereda', 'N/A')}"
-                    )
-                    tooltip_text = f"Estación: {row.get('Nom_Est', 'N/A')}"
-                    folium.CircleMarker(
-                        location=[row['Latitud'], row['Longitud']],
-                        radius=6,
-                        popup=pop_up_text,
-                        tooltip=tooltip_text,
-                        color='blue',
-                        fill=True,
-                        fill_color='blue',
-                        fill_opacity=0.6
-                    ).add_to(m)
+            if 'Latitud' in selected_stations_df.columns and 'Longitud' in selected_stations_df.columns:
+                for idx, row in selected_stations_df.iterrows():
+                    if pd.notna(row['Latitud']) and pd.notna(row['Longitud']):
+                        pop_up_text = (
+                            f"<b>Estación:</b> {row.get('Nom_Est', 'N/A')}<br>"
+                            f"<b>Municipio:</b> {row.get('municipio', 'N/A')}<br>"
+                            f"<b>Vereda:</b> {row.get('vereda', 'N/A')}"
+                        )
+                        tooltip_text = f"Estación: {row.get('Nom_Est', 'N/A')}"
+                        folium.CircleMarker(
+                            location=[row['Latitud'], row['Longitud']],
+                            radius=6,
+                            popup=pop_up_text,
+                            tooltip=tooltip_text,
+                            color='blue',
+                            fill=True,
+                            fill_color='blue',
+                            fill_opacity=0.6
+                        ).add_to(m)
+            else:
+                st.info("No hay datos de latitud y longitud disponibles para mostrar marcadores en el mapa.")
+            
             folium_static(m)
 
     # --- Pestaña 4: Animaciones ---
@@ -421,32 +425,35 @@ if data_df is not None and not data_df.empty:
                 )
                 st.plotly_chart(fig, use_container_width=True)
             else: # Mapa Animado
-                df_melted_map = selected_stations_df.melt(
-                    id_vars=['Nom_Est', 'Latitud', 'Longitud'],
-                    value_vars=years_to_analyze_present,
-                    var_name='Año',
-                    value_name='Precipitación'
-                )
-                fig = px.scatter_mapbox(
-                    df_melted_map,
-                    lat="Latitud",
-                    lon="Longitud",
-                    hover_name="Nom_Est",
-                    hover_data={"Precipitación": True, "Año": True, "Latitud": False, "Longitud": False},
-                    color="Precipitación",
-                    size="Precipitación",
-                    color_continuous_scale=px.colors.sequential.Bluyl,
-                    animation_frame="Año",
-                    mapbox_style="open-street-map",
-                    zoom=7,
-                    title="Precipitación Anual Animada en el Mapa",
-                    range_color=y_range
-                )
-                fig.update_layout(
-                    mapbox_style="open-street-map",
-                    mapbox_zoom=7,
-                    mapbox_center={"lat": df_melted_map['Latitud'].mean(), "lon": df_melted_map['Longitud'].mean()},
-                )
-                st.plotly_chart(fig, use_container_width=True)
+                if 'Latitud' in selected_stations_df.columns and 'Longitud' in selected_stations_df.columns:
+                    df_melted_map = selected_stations_df.melt(
+                        id_vars=['Nom_Est', 'Latitud', 'Longitud'],
+                        value_vars=years_to_analyze_present,
+                        var_name='Año',
+                        value_name='Precipitación'
+                    )
+                    fig = px.scatter_mapbox(
+                        df_melted_map,
+                        lat="Latitud",
+                        lon="Longitud",
+                        hover_name="Nom_Est",
+                        hover_data={"Precipitación": True, "Año": True, "Latitud": False, "Longitud": False},
+                        color="Precipitación",
+                        size="Precipitación",
+                        color_continuous_scale=px.colors.sequential.Bluyl,
+                        animation_frame="Año",
+                        mapbox_style="open-street-map",
+                        zoom=7,
+                        title="Precipitación Anual Animada en el Mapa",
+                        range_color=y_range
+                    )
+                    fig.update_layout(
+                        mapbox_style="open-street-map",
+                        mapbox_zoom=7,
+                        mapbox_center={"lat": df_melted_map['Latitud'].mean(), "lon": df_melted_map['Longitud'].mean()},
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("No se encontraron datos de latitud y longitud para crear el mapa animado. Asegúrate de que las columnas 'Latitud' y 'Longitud' existan en el archivo CSV.")
 else:
     st.info("Por favor, sube los archivos .csv y .zip en la sección 'Cargar Datos' para comenzar a analizar la información.")
