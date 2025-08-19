@@ -20,6 +20,7 @@ st.markdown("---")
 def load_all_data(uploaded_file_csv, uploaded_zip):
     """
     Carga, procesa y une los datos del CSV y del shapefile.
+    Normaliza los nombres de las columnas para evitar errores de espacios.
     Retorna el GeoDataFrame unido o el DataFrame del CSV.
     """
     df = None
@@ -29,12 +30,18 @@ def load_all_data(uploaded_file_csv, uploaded_zip):
     if uploaded_file_csv:
         try:
             df = pd.read_csv(uploaded_file_csv, sep=';')
+            # Normalizar nombres de columnas
+            df.columns = df.columns.str.strip()
             df = df.rename(columns={'Mpio': 'municipio', 'NOMBRE_VER': 'vereda'})
+            required_csv_cols = ['Nom_Est', 'Latitud', 'Longitud']
+            if not all(col in df.columns for col in required_csv_cols):
+                st.error(f"Error: El archivo CSV no contiene todas las columnas requeridas: {', '.join(required_csv_cols)}")
+                return None
             df['Latitud'] = pd.to_numeric(df['Latitud'], errors='coerce')
             df['Longitud'] = pd.to_numeric(df['Longitud'], errors='coerce')
             df.dropna(subset=['Latitud', 'Longitud'], inplace=True)
             if df.empty:
-                st.error("El DataFrame está vacío. Por favor, asegúrate de que tu archivo CSV contenga datos válidos en las columnas 'Nom_Est', 'Latitud' y 'Longitud'.")
+                st.error("El DataFrame está vacío. Por favor, asegúrate de que tu archivo CSV contenga datos válidos.")
                 return None
             st.success("Archivo CSV cargado exitosamente.")
         except Exception as e:
@@ -51,6 +58,8 @@ def load_all_data(uploaded_file_csv, uploaded_zip):
                 if shp_files:
                     shp_path = os.path.join(temp_dir, shp_files[0])
                     gdf = gpd.read_file(shp_path)
+                    # Normalizar nombres de columnas
+                    gdf.columns = gdf.columns.str.strip()
                     gdf.set_crs("EPSG:9377", inplace=True)
                     gdf = gdf.to_crs("EPSG:4326")
                     if 'Nom_Est' not in gdf.columns:
@@ -224,6 +233,8 @@ if data_df is not None and not data_df.empty:
         st.markdown("---")
         if selected_stations_df.empty:
             st.info("Por favor, selecciona al menos una estación en la barra lateral.")
+        elif not years_to_analyze_present:
+            st.info("El rango de años seleccionado no contiene datos para las estaciones seleccionadas. Por favor, ajusta el rango de años.")
         else:
             df_melted = selected_stations_df.melt(
                 id_vars=['Nom_Est'],
@@ -330,12 +341,12 @@ if data_df is not None and not data_df.empty:
             zoom_level = 6
 
             if st.session_state.map_center_type == 'stations' and not selected_stations_df.empty and 'Latitud' in selected_stations_df.columns:
-                map_center = [selected_stations_df.geometry.centroid.y.mean(), selected_stations_df.geometry.centroid.x.mean()]
+                map_center = [selected_stations_df['Latitud'].mean(), selected_stations_df['Longitud'].mean()]
                 zoom_level = 8
             
             m = folium.Map(location=map_center, zoom_start=zoom_level, tiles="CartoDB positron")
 
-            if st.session_state.map_center_type == 'stations' and not selected_stations_df.empty:
+            if st.session_state.map_center_type == 'stations' and not selected_stations_df.empty and 'geometry' in selected_stations_df.columns:
                 bounds = [[selected_stations_df.total_bounds[1], selected_stations_df.total_bounds[0]],
                           [selected_stations_df.total_bounds[3], selected_stations_df.total_bounds[2]]]
                 m.fit_bounds(bounds)
@@ -378,59 +389,58 @@ if data_df is not None and not data_df.empty:
         st.markdown("---")
         if selected_stations_df.empty:
             st.info("Por favor, selecciona al menos una estación en la barra lateral.")
+        elif not years_to_analyze_present:
+            st.info("El rango de años seleccionado no contiene datos de precipitación para las estaciones seleccionadas. Por favor, ajusta el rango de años.")
         else:
             animation_type = st.radio("Selecciona el tipo de animación:", ('Barras Animadas', 'Mapa Animado'))
-            if years_to_analyze_present:
-                if animation_type == 'Barras Animadas':
-                    df_melted_anim = selected_stations_df.melt(
-                        id_vars=['Nom_Est'],
-                        value_vars=years_to_analyze_present,
-                        var_name='Año',
-                        value_name='Precipitación'
-                    )
-                    df_melted_anim['Año'] = df_melted_anim['Año'].astype(str)
-                    
-                    fig = px.bar(
-                        df_melted_anim,
-                        x='Nom_Est',
-                        y='Precipitación',
-                        animation_frame='Año',
-                        color='Nom_Est',
-                        title='Precipitación Anual por Estación',
-                        labels={'Nom_Est': 'Estación', 'Precipitación': 'Precipitación (mm)'},
-                        range_y=y_range
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-                else: # Mapa Animado
-                    df_melted_map = selected_stations_df.melt(
-                        id_vars=['Nom_Est', 'Latitud', 'Longitud'],
-                        value_vars=years_to_analyze_present,
-                        var_name='Año',
-                        value_name='Precipitación'
-                    )
-                    fig = px.scatter_mapbox(
-                        df_melted_map,
-                        lat="Latitud",
-                        lon="Longitud",
-                        hover_name="Nom_Est",
-                        hover_data={"Precipitación": True, "Año": True, "Latitud": False, "Longitud": False},
-                        color="Precipitación",
-                        size="Precipitación",
-                        color_continuous_scale=px.colors.sequential.Bluyl,
-                        animation_frame="Año",
-                        mapbox_style="open-street-map",
-                        zoom=7,
-                        title="Precipitación Anual Animada en el Mapa",
-                        range_color=y_range
-                    )
-                    fig.update_layout(
-                        mapbox_style="open-street-map",
-                        mapbox_zoom=7,
-                        mapbox_center={"lat": df_melted_map['Latitud'].mean(), "lon": df_melted_map['Longitud'].mean()},
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("El rango de años seleccionado no contiene datos de precipitación para las estaciones seleccionadas. Por favor, ajusta el rango de años.")
-
+            
+            if animation_type == 'Barras Animadas':
+                df_melted_anim = selected_stations_df.melt(
+                    id_vars=['Nom_Est'],
+                    value_vars=years_to_analyze_present,
+                    var_name='Año',
+                    value_name='Precipitación'
+                )
+                df_melted_anim['Año'] = df_melted_anim['Año'].astype(str)
+                
+                fig = px.bar(
+                    df_melted_anim,
+                    x='Nom_Est',
+                    y='Precipitación',
+                    animation_frame='Año',
+                    color='Nom_Est',
+                    title='Precipitación Anual por Estación',
+                    labels={'Nom_Est': 'Estación', 'Precipitación': 'Precipitación (mm)'},
+                    range_y=y_range
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            else: # Mapa Animado
+                df_melted_map = selected_stations_df.melt(
+                    id_vars=['Nom_Est', 'Latitud', 'Longitud'],
+                    value_vars=years_to_analyze_present,
+                    var_name='Año',
+                    value_name='Precipitación'
+                )
+                fig = px.scatter_mapbox(
+                    df_melted_map,
+                    lat="Latitud",
+                    lon="Longitud",
+                    hover_name="Nom_Est",
+                    hover_data={"Precipitación": True, "Año": True, "Latitud": False, "Longitud": False},
+                    color="Precipitación",
+                    size="Precipitación",
+                    color_continuous_scale=px.colors.sequential.Bluyl,
+                    animation_frame="Año",
+                    mapbox_style="open-street-map",
+                    zoom=7,
+                    title="Precipitación Anual Animada en el Mapa",
+                    range_color=y_range
+                )
+                fig.update_layout(
+                    mapbox_style="open-street-map",
+                    mapbox_zoom=7,
+                    mapbox_center={"lat": df_melted_map['Latitud'].mean(), "lon": df_melted_map['Longitud'].mean()},
+                )
+                st.plotly_chart(fig, use_container_width=True)
 else:
     st.info("Por favor, sube los archivos .csv y .zip en la sección 'Cargar Datos' para comenzar a analizar la información.")
