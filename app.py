@@ -20,7 +20,7 @@ st.markdown("---")
 def load_all_data(uploaded_file_csv, uploaded_zip):
     """
     Carga, procesa y une los datos del CSV y del shapefile.
-    Normaliza los nombres de las columnas para evitar errores de espacios.
+    Normaliza los nombres de las columnas y valida su existencia.
     Retorna el GeoDataFrame unido o el DataFrame del CSV.
     """
     df = None
@@ -33,10 +33,14 @@ def load_all_data(uploaded_file_csv, uploaded_zip):
             # Normalizar nombres de columnas
             df.columns = df.columns.str.strip()
             df = df.rename(columns={'Mpio': 'municipio', 'NOMBRE_VER': 'vereda'})
-            required_csv_cols = ['Nom_Est', 'Latitud', 'Longitud']
-            if not all(col in df.columns for col in required_csv_cols):
-                st.error(f"Error: El archivo CSV no contiene todas las columnas requeridas: {', '.join(required_csv_cols)}")
+            
+            # Validación estricta de columnas requeridas
+            required_csv_cols = ['Nom_Est', 'Latitud', 'Longitud', 'municipio', 'Celda_XY', 'vereda', 'Id_estacion']
+            missing_cols = [col for col in required_csv_cols if col not in df.columns]
+            if missing_cols:
+                st.error(f"Error: Las siguientes columnas requeridas no se encuentran en el archivo CSV: {', '.join(missing_cols)}. Por favor, verifica los nombres de las columnas en tu archivo.")
                 return None
+            
             df['Latitud'] = pd.to_numeric(df['Latitud'], errors='coerce')
             df['Longitud'] = pd.to_numeric(df['Longitud'], errors='coerce')
             df.dropna(subset=['Latitud', 'Longitud'], inplace=True)
@@ -74,7 +78,7 @@ def load_all_data(uploaded_file_csv, uploaded_zip):
             st.error(f"Error al procesar el archivo ZIP: {e}")
             return None
 
-    # Unir los datos: unir el shapefile al CSV para conservar todos los datos de estación
+    # Unir los datos
     if df is not None and gdf is not None:
         merged_gdf = df.merge(gdf, on='Nom_Est', how='left')
         st.success("Datos de CSV y Shapefile unidos exitosamente.")
@@ -130,7 +134,6 @@ if data_df is not None and not data_df.empty:
             if st.button("Limpiar selección"):
                 st.session_state.selected_stations = []
 
-        # Asegurar que el estado de las estaciones seleccionadas sea un subconjunto válido
         if 'selected_stations' not in st.session_state:
             st.session_state.selected_stations = []
         
@@ -234,14 +237,14 @@ if data_df is not None and not data_df.empty:
             
             # Info de la tabla 3: Estadísticas por celda
             st.subheader("Estadísticas Agregadas por Celda")
-            if 'Celda_XY' in selected_stations_df.columns:
+            if 'Celda_XY' in selected_stations_df.columns and not selected_stations_df.empty:
                 celda_stats_df = selected_stations_df.groupby('Celda_XY')[years_to_analyze_present].agg(
                     Cant_est=('Nom_Est', 'count'),
                     **{f'Lluvia Prom. {y}': (y, 'mean') for y in years_to_analyze_present}
                 ).reset_index().round(2)
                 st.dataframe(celda_stats_df.set_index('Celda_XY'))
             else:
-                st.info("La columna 'Celda_XY' no se encontró en los datos, por lo que no se puede mostrar esta tabla.")
+                st.info("La columna 'Celda_XY' no se encontró o no hay datos para mostrar esta tabla.")
 
 
     # --- Pestaña 2: Gráficos de Precipitación ---
@@ -340,7 +343,6 @@ if data_df is not None and not data_df.empty:
         if selected_stations_df.empty:
             st.info("Por favor, selecciona al menos una estación en la barra lateral.")
         else:
-            # Botones para centrar el mapa
             col_map1, col_map2 = st.columns(2)
             with col_map1:
                 if st.button("Centrar en Colombia"):
@@ -373,7 +375,6 @@ if data_df is not None and not data_df.empty:
                               [selected_stations_df.total_bounds[3], selected_stations_df.total_bounds[2]]]
                     m.fit_bounds(bounds)
                 
-                # Crear la capa de polígonos del shapefile
                 folium.GeoJson(
                     selected_stations_df.to_json(),
                     name='Áreas del Shapefile',
@@ -382,7 +383,6 @@ if data_df is not None and not data_df.empty:
                                                             style=("background-color: white; color: #333333; font-family: sans-serif; font-size: 12px; padding: 10px;"))
                 ).add_to(m)
 
-            # Agregar marcadores para cada estación
             if 'Latitud' in selected_stations_df.columns and 'Longitud' in selected_stations_df.columns:
                 for idx, row in selected_stations_df.iterrows():
                     if pd.notna(row['Latitud']) and pd.notna(row['Longitud']):
