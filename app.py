@@ -29,13 +29,13 @@ with st.sidebar.expander("📂 Cargar Datos"):
             # Usar 'utf-8' por defecto, pero manejar el error con 'latin-1' si falla
             df = pd.read_csv(uploaded_file_csv, sep=';', encoding='utf-8')
             # Renombrar columnas con los nombres correctos del usuario
-            df = df.rename(columns={'Mpio': 'municipio', 'NOMBRE_VER': 'vereda'})
+            df = df.rename(columns={'Mpio': 'municipio', 'NOMBRE_VER': 'vereda', 'Nom_Est': 'Nom_Est'})
             st.success("Archivo CSV cargado exitosamente.")
         except UnicodeDecodeError:
             try:
                 df = pd.read_csv(uploaded_file_csv, sep=';', encoding='latin-1')
                 # Renombrar columnas con los nombres correctos del usuario
-                df = df.rename(columns={'Mpio': 'municipio', 'NOMBRE_VER': 'vereda'})
+                df = df.rename(columns={'Mpio': 'municipio', 'NOMBRE_VER': 'vereda', 'Nom_Est': 'Nom_Est'})
                 st.success("Archivo CSV cargado exitosamente (con codificación latin-1).")
             except Exception as e:
                 st.error(f"Error al leer el archivo CSV: {e}")
@@ -78,23 +78,25 @@ if df is not None:
     if missing_cols:
         st.error(f"Error: Las siguientes columnas requeridas no se encuentran en el archivo CSV: {', '.join(missing_cols)}. Por favor, verifica los nombres de las columnas en tu archivo.")
     else:
+        df_final = df.copy()
+
         # Unir el DataFrame con el GeoDataFrame para obtener la geometría correcta
-        if gdf is not None:
-            # Asegurar que las columnas de unión estén en ambos dataframes
-            df_merged = pd.merge(df, gdf, on='Nom_Est', how='inner')
+        if gdf is not None and not gdf.empty:
+            # CORRECCIÓN CLAVE: Usar gdf.merge() para preservar la geometría
+            df_final = gdf.merge(df, on='Nom_Est', how='inner')
             
             # Usar el centroide del polígono como las coordenadas
-            df_merged['Latitud'] = df_merged.geometry.centroid.y
-            df_merged['Longitud'] = df_merged.geometry.centroid.x
+            df_final['Latitud'] = df_final.geometry.centroid.y
+            df_final['Longitud'] = df_final.geometry.centroid.x
             
             # Convertir las columnas a tipo numérico, manejando errores de 'nan'
-            df_merged['Latitud'] = pd.to_numeric(df_merged['Latitud'], errors='coerce')
-            df_merged['Longitud'] = pd.to_numeric(df_merged['Longitud'], errors='coerce')
+            df_final['Latitud'] = pd.to_numeric(df_final['Latitud'], errors='coerce')
+            df_final['Longitud'] = pd.to_numeric(df_final['Longitud'], errors='coerce')
             
             # Eliminar filas con valores NaN en latitud/longitud
-            df_merged.dropna(subset=['Latitud', 'Longitud'], inplace=True)
+            df_final.dropna(subset=['Latitud', 'Longitud'], inplace=True)
             
-            df = df_merged
+            df = df_final
 
         # Verificar si el DataFrame está vacío después de la limpieza
         if df.empty:
@@ -336,7 +338,7 @@ if df is not None:
                 st.header("🌎 Mapa de Ubicación de las Estaciones")
                 st.markdown("---")
                 
-                if gdf is None:
+                if gdf is None or gdf.empty:
                     st.info("Por favor, carga el archivo shapefile en formato .zip en la sección 'Cargar Datos'.")
                 elif selected_stations_df.empty:
                     st.info("Por favor, selecciona al menos una estación en la barra lateral.")
@@ -363,50 +365,44 @@ if df is not None:
                             st.session_state.reset_map_antioquia = False
 
                     # Crear el mapa de Folium
+                    map_center = [4.5709, -74.2973] # Centro de Colombia por defecto
+                    zoom_level = 6
+
                     if 'reset_map_colombia' in st.session_state and st.session_state.reset_map_colombia:
-                        map_center = [4.5709, -74.2973] # Centro de Colombia
-                        m = folium.Map(location=map_center, zoom_start=6, tiles="CartoDB positron")
                         st.session_state.reset_map_colombia = False
                     elif 'reset_map_antioquia' in st.session_state and st.session_state.reset_map_antioquia:
-                        # Coordenadas aproximadas del centro de Antioquia
                         map_center = [6.2442, -75.5812]
-                        m = folium.Map(location=map_center, zoom_start=8, tiles="CartoDB positron")
+                        zoom_level = 8
                         st.session_state.reset_map_antioquia = False
                     elif 'center_on_stations' in st.session_state and st.session_state.center_on_stations:
-                        gdf_selected = gdf[gdf['Nom_Est'].isin(selected_stations_list)]
+                        gdf_selected = df[df['Nom_Est'].isin(selected_stations_list)]
                         if not gdf_selected.empty:
                             map_center = [gdf_selected.geometry.centroid.y.mean(), gdf_selected.geometry.centroid.x.mean()]
-                            m = folium.Map(location=map_center, zoom_start=8, tiles="CartoDB positron")
-                            bounds = [[gdf_selected.total_bounds[1], gdf_selected.total_bounds[0]], 
-                                      [gdf_selected.total_bounds[3], gdf_selected.total_bounds[2]]]
-                            m.fit_bounds(bounds)
-                        else:
-                            map_center = [4.5709, -74.2973] # Fallback to Colombia
-                            m = folium.Map(location=map_center, zoom_start=6, tiles="CartoDB positron")
+                            zoom_level = 8
                         st.session_state.center_on_stations = False
                     else:
-                        gdf_selected = gdf[gdf['Nom_Est'].isin(selected_stations_list)]
-                        
+                        gdf_selected = df[df['Nom_Est'].isin(selected_stations_list)]
                         if not gdf_selected.empty:
                             map_center = [gdf_selected.geometry.centroid.y.mean(), gdf_selected.geometry.centroid.x.mean()]
-                            m = folium.Map(location=map_center, zoom_start=8, tiles="CartoDB positron")
-                            
-                            # Ajustar el encuadre del mapa a las estaciones seleccionadas
-                            bounds = [[gdf_selected.total_bounds[1], gdf_selected.total_bounds[0]], 
-                                      [gdf_selected.total_bounds[3], gdf_selected.total_bounds[2]]]
-                            m.fit_bounds(bounds)
-                        else:
-                            map_center = [4.5709, -74.2973]
-                            m = folium.Map(location=map_center, zoom_start=6, tiles="CartoDB positron")
-                    
-                    if gdf is not None:
-                        gdf_selected = gdf[gdf['Nom_Est'].isin(selected_stations_list)]
-                        gdf_selected = gdf_selected.merge(stats_df, on='Nom_Est', how='left')
+                            zoom_level = 8
 
-                        if not gdf_selected.empty:
+                    m = folium.Map(location=map_center, zoom_start=zoom_level, tiles="CartoDB positron")
+
+                    # Ajustar el encuadre del mapa a las estaciones seleccionadas
+                    gdf_selected_for_bounds = df[df['Nom_Est'].isin(selected_stations_list)]
+                    if not gdf_selected_for_bounds.empty:
+                        bounds = [[gdf_selected_for_bounds.total_bounds[1], gdf_selected_for_bounds.total_bounds[0]], 
+                                  [gdf_selected_for_bounds.total_bounds[3], gdf_selected_for_bounds.total_bounds[2]]]
+                        m.fit_bounds(bounds)
+
+                    if not df.empty:
+                        gdf_final = df.copy()
+                        gdf_final = gdf_final.merge(stats_df, on='Nom_Est', how='left')
+
+                        if not gdf_final.empty:
                             # Añadir las áreas (polígonos) del shapefile al mapa
                             folium.GeoJson(
-                                gdf_selected.to_json(),
+                                gdf_final.to_json(),
                                 name='Áreas del Shapefile',
                                 tooltip=folium.features.GeoJsonTooltip(fields=['Nom_Est', 'municipio', 'vereda', 'Precipitación Media (mm)'],
                                                                         aliases=['Estación', 'Municipio', 'Vereda', 'Precipitación Media'],
@@ -414,7 +410,7 @@ if df is not None:
                             ).add_to(m)
 
                             # Añadir los marcadores circulares para las estaciones
-                            for idx, row in gdf_selected.iterrows():
+                            for idx, row in gdf_final.iterrows():
                                 if pd.notna(row['Latitud']) and pd.notna(row['Longitud']):
                                     pop_up_text = (
                                         f"<b>Estación:</b> {row['Nom_Est']}<br>"
